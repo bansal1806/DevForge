@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import * as Diff from 'diff'
-import { FileCode, Plus, Minus } from 'lucide-react'
+import { FileCode } from 'lucide-react'
 import styles from './DiffViewer.module.css'
 
 interface DiffFile {

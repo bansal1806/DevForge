@@ -36,7 +36,7 @@ export default function Auth() {
 
       if (isLogin) {
         // Essential: Sync the Supabase client with the proxied session
-        const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+        const { error: sessionError } = await supabase.auth.setSession({
           access_token: result.session.access_token,
           refresh_token: result.session.refresh_token,
         })
