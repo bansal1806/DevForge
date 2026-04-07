@@ -71,7 +71,44 @@ CREATE POLICY "Owners can manage files" ON public.files
         SELECT 1 FROM public.repositories WHERE id = repo_id AND owner_id = auth.uid()
     ));
 
--- 8. Functions & Triggers for Profiles
+-- 9. Audit Logs Table
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID REFERENCES public.users(id),
+    repo_id UUID REFERENCES public.repositories(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 10. Execution Stats Table
+CREATE TABLE IF NOT EXISTS public.execution_stats (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    repo_id UUID REFERENCES public.repositories(id) ON DELETE CASCADE NOT NULL,
+    language TEXT NOT NULL,
+    status TEXT NOT NULL, -- 'success', 'error', 'timeout'
+    duration INTEGER, -- in milliseconds
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 11. Enable RLS for new tables
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.execution_stats ENABLE ROW LEVEL SECURITY;
+
+-- 12. Policies for Audit Logs
+CREATE POLICY "Users can view audit logs for their repos" ON public.audit_logs 
+    FOR SELECT USING (
+        auth.uid() = user_id OR 
+        EXISTS (SELECT 1 FROM public.repositories WHERE id = repo_id AND owner_id = auth.uid())
+    );
+
+-- 13. Policies for Execution Stats
+CREATE POLICY "Owners can view execution stats for their repos" ON public.execution_stats 
+    FOR SELECT USING (
+        EXISTS (SELECT 1 FROM public.repositories WHERE id = repo_id AND owner_id = auth.uid())
+    );
+
+-- 14. Functions & Triggers for Profiles
 -- Automatically create a profile when a new user signs up
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$

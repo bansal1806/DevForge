@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
-import { supabase } from '../index';
+import { supabaseAdmin } from '../index';
 
 const router = Router();
 
@@ -11,6 +11,7 @@ const router = Router();
 router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const supabase = req.supabase || supabaseAdmin;
 
     const { data: profile, error } = await supabase
       .from('users')
@@ -36,6 +37,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
 router.get('/:id/repos', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const supabase = req.supabase || supabaseAdmin;
 
     const { data: repos, error } = await supabase
       .from('repositories')

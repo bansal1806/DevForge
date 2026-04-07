@@ -1,18 +1,78 @@
 import { Router, Response } from 'express';
 import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
-import { supabase } from '../index';
+import { supabaseAdmin } from '../index';
+import { logAuth } from '../utils/logger';
 
 const router = Router();
 
 /**
+ * POST /api/auth/signup
+ */
+router.post('/signup', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { email, password, name } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const { data, error } = await supabaseAdmin.auth.signUp({
+      email,
+      password,
+      options: { 
+        data: { full_name: name || '' },
+        emailRedirectTo: process.env.FRONTEND_URL || 'http://localhost:5173'
+      }
+    });
+
+    if (error) {
+      logAuth(email, 'failure', `Signup failed: ${error.message}`);
+      return res.status(error.status || 400).json({ error: error.message });
+    }
+
+    logAuth(email, 'success', 'User registered via proxied auth');
+    res.status(201).json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error during registration' });
+  }
+});
+
+/**
+ * POST /api/auth/login
+ */
+router.post('/login', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const { data, error } = await supabaseAdmin.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      logAuth(email, 'failure', `Login failed: ${error.message}`);
+      return res.status(error.status || 401).json({ error: 'Invalid email or password' });
+    }
+
+    logAuth(email, 'success', 'User logged in via proxied auth');
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error during login' });
+  }
+});
+
+/**
  * GET /api/auth/me
- * Returns the currently authenticated user's profile.
  */
 router.get('/me', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const user = req.user!;
+    const supabase = req.supabase!;
 
-    // Fetch extended profile from our users table
     const { data: profile, error } = await supabase
       .from('users')
       .select('*')
@@ -20,7 +80,6 @@ router.get('/me', requireAuth, async (req: AuthenticatedRequest, res: Response) 
       .single();
 
     if (error && error.code !== 'PGRST116') {
-      // PGRST116 = row not found, which is okay for new users
       res.status(500).json({ error: 'Failed to fetch profile' });
       return;
     }
@@ -40,11 +99,11 @@ router.get('/me', requireAuth, async (req: AuthenticatedRequest, res: Response) 
 
 /**
  * PUT /api/auth/profile
- * Updates the authenticated user's profile.
  */
 router.put('/profile', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const user = req.user!;
+    const supabase = req.supabase!;
     const { name, bio, avatar_url } = req.body;
 
     const { data, error } = await supabase
