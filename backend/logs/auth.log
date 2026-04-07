@@ -80,3 +80,7 @@
 {"label":"AUTH","level":"info","message":"GET /api/repos 401 51 - 1.350 ms","timestamp":"2026-04-07 21:53:45"}
 {"label":"AUTH","level":"info","message":"GET /api/health 200 79 - 1.446 ms","timestamp":"2026-04-07 21:54:18"}
 {"label":"AUTH","level":"info","message":"GET /admin 404 27 - 0.510 ms","timestamp":"2026-04-07 21:54:52"}
+{"label":"AUTH","level":"info","message":"⚡ DevForge API Listening on port 5050","timestamp":"2026-04-07 22:12:42"}
+{"label":"AUTH","level":"info","message":"⚡ DevForge API Listening on port 5050","timestamp":"2026-04-07 22:13:18"}
+{"label":"AUTH","level":"info","message":"⚡ DevForge API Listening on port 5050","timestamp":"2026-04-07 22:13:26"}
+{"label":"AUTH","level":"info","message":"⚡ DevForge API Listening on port 5050","timestamp":"2026-04-07 22:13:52"}

@@ -2,8 +2,11 @@ import { Router, Response } from 'express';
 import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
 import { verifyRepoAccess } from '../middleware/authorize';
 import { SandboxService } from '../services/sandbox';
+import { PistonService } from '../services/piston';
 import { logger } from '../utils/logger';
 import { logExecutionMetric } from '../utils/audit';
+import fs from 'fs/promises';
+import path from 'path';
 
 const router = Router();
 
@@ -31,18 +34,30 @@ router.post('/:repoId/run', requireAuth, verifyRepoAccess('read'), async (req: A
       return res.status(400).json({ error: 'Unsupported language for execution' });
     }
 
-    const sandbox = new SandboxService(repoId);
-    logger.info(`Requesting execution for ${filePath} (${language}) in repo ${repoId}`);
-
     const startTime = Date.now();
-    const result = await sandbox.runFile(filePath, language!);
+    let result;
+
+    if (process.env.USE_PISTON === 'true') {
+      logger.info(`Using Piston API for ${filePath} (${language}) in repo ${repoId}`);
+      
+      // Read file content for Piston
+      const fullPath = path.join(process.cwd(), 'data', 'repos', repoId, filePath);
+      const content = await fs.readFile(fullPath, 'utf-8');
+      
+      result = await PistonService.runCode(content, language!);
+    } else {
+      logger.info(`Using Docker Sandbox for ${filePath} (${language}) in repo ${repoId}`);
+      const sandbox = new SandboxService(repoId);
+      result = await sandbox.runFile(filePath, language!);
+    }
+
     const duration = Date.now() - startTime;
 
     // Log Execution Metrics
     await logExecutionMetric({
       repoId,
       language: language!,
-      status: result.exitCode === 0 ? 'success' : 'error',
+      status: (result as any).exitCode === 0 ? 'success' : 'error',
       duration
     });
     

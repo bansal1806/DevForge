@@ -198,6 +198,10 @@ io.on('connection', (socket) => {
 });
 
 // Start Server
-httpServer.listen(PORT, () => {
-  logger.info(`⚡ DevForge API Listening on port ${PORT}`);
-});
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
+  httpServer.listen(PORT, () => {
+    logger.info(`⚡ DevForge API Listening on port ${PORT}`);
+  });
+}
+
+export default app;
