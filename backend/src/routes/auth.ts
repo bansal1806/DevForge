@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
 import { supabaseAdmin } from '../index';
-import { logAuth } from '../utils/logger';
+import { logAuth, logger } from '../utils/logger';
 
 const router = Router();
 
