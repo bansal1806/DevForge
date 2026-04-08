@@ -28,10 +28,23 @@ export default function Auth() {
         body: JSON.stringify({ email, password }),
       })
 
-      const result = await response.json()
+      let result: any = {}
+      const contentType = response.headers.get('Content-Type')
+      
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          result = await response.json()
+        } catch (e) {
+          console.error('Failed to parse JSON response:', e)
+        }
+      } else {
+        // Handle non-JSON (e.g. server error or plain text)
+        const text = await response.text();
+        console.warn('Received non-JSON response:', text);
+      }
 
       if (!response.ok) {
-        throw new Error(result.error || 'Authentication failed')
+        throw new Error(result.error || `Authentication failed: ${response.statusText}`)
       }
 
       if (isLogin) {

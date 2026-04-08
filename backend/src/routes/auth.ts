@@ -16,6 +16,8 @@ router.post('/signup', async (req: AuthenticatedRequest, res: Response) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
+    logger.info(`Attempting proxied signUp for ${email}`);
+
     const { data, error } = await supabaseAdmin.auth.signUp({
       email,
       password,
@@ -26,13 +28,23 @@ router.post('/signup', async (req: AuthenticatedRequest, res: Response) => {
     });
 
     if (error) {
+      logger.error(`Supabase signUp error for ${email}: ${error.message}`, { 
+        status: error.status,
+        code: error.code 
+      });
       logAuth(email, 'failure', `Signup failed: ${error.message}`);
       return res.status(error.status || 400).json({ error: error.message });
     }
 
+    if (!data.user) {
+      logger.warn(`Supabase signUp returned no user for ${email}. Check your Supabase project settings.`);
+      return res.status(400).json({ error: 'Registration succeeded but no user was returned. Verification might be required.' });
+    }
+
     logAuth(email, 'success', 'User registered via proxied auth');
     res.status(201).json(data);
-  } catch (err) {
+  } catch (err: any) {
+    logger.error(`Unhandled registration error: ${err.message}`, { stack: err.stack });
     res.status(500).json({ error: 'Internal server error during registration' });
   }
 });
