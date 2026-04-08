@@ -1,4 +1,5 @@
 import apiClient from './apiClient'
+export { apiClient }
 
 export interface Repository {
   id: string

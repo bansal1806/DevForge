@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { GitBranch, Mail, Lock, AlertCircle, Loader2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { apiClient } from '../../lib/api'
 import styles from './Auth.module.css'
 
 export default function Auth() {
@@ -19,33 +20,12 @@ export default function Auth() {
     setError(null)
 
     try {
-      const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-      const endpoint = isLogin ? `${apiBase}/api/auth/login` : `${apiBase}/api/auth/signup`
+      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/signup'
       
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+      const { data: result } = await apiClient.post(endpoint, { 
+        email, 
+        password 
       })
-
-      let result: any = {}
-      const contentType = response.headers.get('Content-Type')
-      
-      if (contentType && contentType.includes('application/json')) {
-        try {
-          result = await response.json()
-        } catch (e) {
-          console.error('Failed to parse JSON response:', e)
-        }
-      } else {
-        // Handle non-JSON (e.g. server error or plain text)
-        const text = await response.text();
-        console.warn('Received non-JSON response:', text);
-      }
-
-      if (!response.ok) {
-        throw new Error(result.error || `Authentication failed: ${response.statusText}`)
-      }
 
       if (isLogin) {
         // Essential: Sync the Supabase client with the proxied session
@@ -62,7 +42,8 @@ export default function Auth() {
         setIsLogin(true)
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred during authentication')
+      const errorMessage = err.response?.data?.error || err.message || 'An error occurred during authentication'
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
