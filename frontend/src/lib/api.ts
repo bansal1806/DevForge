@@ -12,6 +12,7 @@ export interface Repository {
   updated_at: string
   // Metadata (optional or joined)
   stars_count?: number
+  starred_by_me?: boolean
   forks_count?: number
   language?: string
   owner?: {
@@ -116,10 +117,29 @@ export interface ActivityItem {
   author?: { name: string, avatar_url?: string }
 }
 
+export interface Commit {
+  id: string
+  repo_id: string
+  branch_id: string
+  author_id: string
+  message: string
+  created_at: string
+  author?: {
+    id: string
+    name: string
+    avatar_url: string | null
+  }
+}
+
 // Repositories
 export async function getRepositories(): Promise<Repository[]> {
   const { data } = await apiClient.get<Repository[]>('/api/repos')
   return data || []
+}
+
+export async function createRepository(repoData: { name: string, description: string, isPrivate: boolean }): Promise<Repository> {
+  const { data } = await apiClient.post<Repository>('/api/repos', repoData)
+  return data
 }
 
 export async function getActivity(): Promise<ActivityItem[]> {
@@ -137,8 +157,25 @@ export async function getRepositoryById(repoId: string): Promise<Repository | nu
   }
 }
 
-export async function getExploreRepos(): Promise<Repository[]> {
-  const { data } = await apiClient.get<Repository[]>('/api/repos/explore')
+export async function getExploreRepos(query?: string): Promise<Repository[]> {
+  const { data } = await apiClient.get<Repository[]>('/api/repos/explore', {
+    params: query ? { q: query } : undefined
+  })
+  return data || []
+}
+
+export async function getStarredRepos(): Promise<Repository[]> {
+  const { data } = await apiClient.get<Repository[]>('/api/repos/starred')
+  return data || []
+}
+
+export async function toggleStar(repoId: string): Promise<{ starred: boolean, stars_count: number }> {
+  const { data } = await apiClient.post<{ starred: boolean, stars_count: number }>(`/api/repos/${repoId}/star`)
+  return data
+}
+
+export async function getRepoMetrics(repoId: string): Promise<ExecutionStat[]> {
+  const { data } = await apiClient.get<ExecutionStat[]>(`/api/repos/${repoId}/metrics`)
   return data || []
 }
 
@@ -162,6 +199,32 @@ export async function getFiles(repoId: string, branchId: string): Promise<FileNo
     params: { branchId }
   })
   return data || []
+}
+
+export async function saveFile(repoId: string, branchId: string, path: string, content: string): Promise<FileNode> {
+  const { data } = await apiClient.post<FileNode>(`/api/repos/${repoId}/files`, { path, content, branchId })
+  return data
+}
+
+export async function deleteFile(repoId: string, branchId: string, path: string): Promise<void> {
+  await apiClient.delete(`/api/repos/${repoId}/files`, { data: { path, branchId } })
+}
+
+export async function createCommit(repoId: string, branchId: string, message: string): Promise<Commit> {
+  const { data } = await apiClient.post<Commit>(`/api/repos/${repoId}/commits`, { message, branchId })
+  return data
+}
+
+export async function getCommits(repoId: string, branchId?: string): Promise<Commit[]> {
+  const { data } = await apiClient.get<Commit[]>(`/api/repos/${repoId}/commits`, {
+    params: branchId ? { branchId } : undefined
+  })
+  return data || []
+}
+
+export async function createBranch(repoId: string, name: string, fromBranchId?: string): Promise<Branch> {
+  const { data } = await apiClient.post<Branch>(`/api/repos/${repoId}/branches`, { name, fromBranchId })
+  return data
 }
 
 // Pull Requests
@@ -198,6 +261,11 @@ export async function getPRActivity(prId: string): Promise<any[]> {
 
 export async function postPRComment(prId: string, content: string): Promise<any> {
   const { data } = await apiClient.post<any>(`/api/pull-requests/${prId}/comments`, { content })
+  return data
+}
+
+export async function mergePullRequest(prId: string): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(`/api/pull-requests/${prId}/merge`)
   return data
 }
 
@@ -281,6 +349,11 @@ export async function summarizeRepo(repoName: string, description: string, fileP
   return data;
 }
 
+export async function reviewPullRequest(prId: string): Promise<{ review: string }> {
+  const { data } = await apiClient.post<{ review: string }>('/api/ai/review-pr', { prId });
+  return data;
+}
+
 // Execution Service
 export interface ExecutionResult {
   stdout: string;
@@ -307,18 +380,13 @@ export async function getUserProfile(userId: string): Promise<UserProfile> {
   return data
 }
 
-export interface ActivityItem {
-  id: string
-  user_id: string
-  action: string
-  target_id: string
-  target_type: 'repository' | 'issue' | 'pull_request' | 'gist'
-  metadata: any
-  created_at: string
-}
-
 export async function getUserActivity(userId: string): Promise<ActivityItem[]> {
   const { data } = await apiClient.get<ActivityItem[]>(`/api/users/${userId}/activity`)
+  return data || []
+}
+
+export async function getUserRepos(userId: string): Promise<Repository[]> {
+  const { data } = await apiClient.get<Repository[]>(`/api/users/${userId}/repos`)
   return data || []
 }
 

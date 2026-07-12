@@ -1,19 +1,22 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  GitPullRequest, 
-  GitMerge, 
-  MessageSquare, 
-  FileCode, 
+import {
+  GitPullRequest,
+  GitMerge,
+  MessageSquare,
+  FileCode,
   ChevronLeft,
   ArrowRight,
   Clock,
   User,
-  CheckCircle2
+  CheckCircle2,
+  Sparkles,
+  Loader2,
+  X
 } from 'lucide-react'
 import type { PullRequest } from '../../lib/api'
-import { getPullRequestById } from '../../lib/api'
+import { getPullRequestById, mergePullRequest, reviewPullRequest, postPRComment } from '../../lib/api'
 import DiffViewer from '../../components/DiffViewer/DiffViewer'
 import CommentSection from '../../components/Social/CommentSection'
 import styles from './PRDetail.module.css'
@@ -27,6 +30,11 @@ export default function PRDetail() {
   const [activeTab, setActiveTab] = useState<'conversation' | 'files'>('conversation')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [merging, setMerging] = useState(false)
+  const [mergeError, setMergeError] = useState<string | null>(null)
+  const [aiReview, setAiReview] = useState<string | null>(null)
+  const [reviewing, setReviewing] = useState(false)
+  const [postingReview, setPostingReview] = useState(false)
 
   useEffect(() => {
     async function fetchPR() {
@@ -45,6 +53,49 @@ export default function PRDetail() {
     }
     fetchPR()
   }, [prId])
+
+  const handleMerge = async () => {
+    if (!prId || merging) return
+    setMerging(true)
+    setMergeError(null)
+    try {
+      await mergePullRequest(prId)
+      const data = await getPullRequestById(prId)
+      setPr(data.pr)
+      setDiff(data.diff)
+    } catch (err: any) {
+      setMergeError(err.response?.data?.error || 'Merge failed. Please try again.')
+    } finally {
+      setMerging(false)
+    }
+  }
+
+  const handleAIReview = async () => {
+    if (!prId || reviewing) return
+    setReviewing(true)
+    try {
+      const { review } = await reviewPullRequest(prId)
+      setAiReview(review)
+    } catch (err: any) {
+      setAiReview(err.response?.data?.error || 'AI review failed. Please try again.')
+    } finally {
+      setReviewing(false)
+    }
+  }
+
+  const handlePostReview = async () => {
+    if (!prId || !aiReview || postingReview) return
+    setPostingReview(true)
+    try {
+      await postPRComment(prId, `## 🤖 AI Review\n\n${aiReview}`)
+      setAiReview(null)
+      window.location.reload()
+    } catch (err) {
+      console.error('Failed to post AI review:', err)
+    } finally {
+      setPostingReview(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -160,11 +211,60 @@ export default function PRDetail() {
                       ? 'No conflicts with the base branch. You can safely merge these changes.' 
                       : `Successfully merged by ${pr.author?.name || 'Developer'} on ${new Date(pr.merged_at || '').toLocaleDateString()}.`}
                   </p>
-                  {pr.status === 'open' && (
-                    <button className={styles['btn-merge']}>
-                      <GitMerge size={18} /> Merge pull request
-                    </button>
+                  {mergeError && (
+                    <p className={styles['merge-desc']} style={{ color: '#ef4444' }}>{mergeError}</p>
                   )}
+                  {pr.status === 'open' && (
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      <button className={styles['btn-merge']} onClick={handleMerge} disabled={merging}>
+                        {merging ? <Loader2 size={18} className="animate-spin" /> : <GitMerge size={18} />}
+                        {merging ? 'Merging…' : 'Merge pull request'}
+                      </button>
+                      <button
+                        className={styles['btn-merge']}
+                        style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)' }}
+                        onClick={handleAIReview}
+                        disabled={reviewing}
+                      >
+                        {reviewing ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                        {reviewing ? 'Reviewing…' : 'AI Review'}
+                      </button>
+                    </div>
+                  )}
+
+                  <AnimatePresence>
+                    {aiReview && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 10 }}
+                        style={{
+                          marginTop: '16px',
+                          padding: '16px',
+                          borderRadius: '12px',
+                          border: '1px solid rgba(139, 92, 246, 0.35)',
+                          background: 'rgba(139, 92, 246, 0.08)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                          <strong style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Sparkles size={16} /> AI Review
+                          </strong>
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <button className="btn-ghost" onClick={handlePostReview} disabled={postingReview}>
+                              {postingReview ? 'Posting…' : 'Post as comment'}
+                            </button>
+                            <button className="btn-ghost" onClick={() => setAiReview(null)} aria-label="Dismiss AI review">
+                              <X size={14} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className={issueStyles['description-body']}>
+                          <ReactMarkdown>{aiReview}</ReactMarkdown>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </div>
             </div>

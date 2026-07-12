@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { GitBranch, Mail, Lock, AlertCircle, Loader2 } from 'lucide-react'
+import { GitBranch, Mail, Lock, AlertCircle, Loader2, Sparkles } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { apiClient } from '../../lib/api'
 import styles from './Auth.module.css'
@@ -11,8 +11,27 @@ export default function Auth() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [demoLoading, setDemoLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
+
+  const handleDemoLogin = async () => {
+    setDemoLoading(true)
+    setError(null)
+    try {
+      const { data: result } = await apiClient.post('/api/auth/demo')
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: result.session.access_token,
+        refresh_token: result.session.refresh_token,
+      })
+      if (sessionError) throw sessionError
+      navigate('/dashboard')
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || 'Demo access failed')
+    } finally {
+      setDemoLoading(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -121,6 +140,16 @@ export default function Auth() {
             disabled={loading}
           >
             {loading ? <Loader2 size={16} className="animate-spin" /> : isLogin ? 'Sign In' : 'Sign Up'}
+          </button>
+
+          <button
+            type="button"
+            className={styles['auth-submit']}
+            style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)', marginTop: '10px' }}
+            onClick={handleDemoLogin}
+            disabled={demoLoading}
+          >
+            {demoLoading ? <Loader2 size={16} className="animate-spin" /> : <><Sparkles size={16} style={{ marginRight: 6 }} /> Explore with Demo Account</>}
           </button>
         </form>
 

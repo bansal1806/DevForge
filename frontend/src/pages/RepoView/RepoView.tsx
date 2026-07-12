@@ -6,17 +6,21 @@ import Editor from '@monaco-editor/react'
 import socket from '../../lib/socket'
 import { useStore } from '../../store/useStore'
 import { supabase } from '../../lib/supabase'
-import { 
-  getRepositoryById, 
-  getBranches, 
-  getFiles, 
-  updateRepository, 
-  deleteRepository, 
-  getRepoIssues, 
+import {
+  getRepositoryById,
+  getBranches,
+  getFiles,
+  saveFile,
+  createCommit,
+  createBranch,
+  toggleStar,
+  updateRepository,
+  deleteRepository,
+  getRepoIssues,
   getRepoPullRequests,
   explainFile,
   runFile,
-  getAdminMetrics
+  getRepoMetrics
 } from '../../lib/api'
 import type { FileNode, Issue, PullRequest, ExecutionResult, ExecutionStat } from '../../lib/api'
 import { 
@@ -26,7 +30,6 @@ import {
   Code2,
   GitPullRequest,
   Bug,
-  PlayCircle,
   Shield,
   Settings,
   GitBranch,
@@ -38,8 +41,8 @@ import {
   Terminal,
   Loader2,
   Play,
-  Copy,
-  Download,
+  Save,
+  GitCommitHorizontal,
   X,
   Plus,
   Sparkles,
@@ -53,11 +56,10 @@ import styles from './RepoView.module.css'
 import NewIssueModal from '../../components/Modals/NewIssueModal'
 import NewPRModal from '../../components/Modals/NewPRModal'
 
-const tabs = [
+const tabDefs = [
   { icon: Code2, label: 'Code' },
-  { icon: Bug, label: 'Issues', badge: '0' },
-  { icon: GitPullRequest, label: 'Pull Requests', badge: '0' },
-  { icon: PlayCircle, label: 'Actions' },
+  { icon: Bug, label: 'Issues' },
+  { icon: GitPullRequest, label: 'Pull Requests' },
   { icon: LineChartIcon, label: 'Insights' },
   { icon: Settings, label: 'Settings' },
 ]
@@ -118,6 +120,14 @@ export default function RepoView() {
   const [showTerminal, setShowTerminal] = useState(false)
   const [repoMetrics, setRepoMetrics] = useState<ExecutionStat[]>([])
 
+  // Editing / Versioning State
+  const [isDirty, setIsDirty] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isCommitting, setIsCommitting] = useState(false)
+  const [commitMessage, setCommitMessage] = useState('')
+  const [showCommitBox, setShowCommitBox] = useState(false)
+  const [isStarring, setIsStarring] = useState(false)
+
   useEffect(() => {
     if (activeRepo) setNewRepoName(activeRepo.name)
   }, [activeRepo])
@@ -162,6 +172,89 @@ export default function RepoView() {
     setExpandedFolders(newExpanded)
   }
 
+  // Save the active file's content to the current branch
+  const handleSave = async () => {
+    if (!activeFile || !id || !activeBranch) return
+    setIsSaving(true)
+    try {
+      await saveFile(id, activeBranch.id, activeFile.path, activeFile.content || '')
+      setIsDirty(false)
+      showNotification('File saved. Commit your changes to record them in history.')
+      setFiles(files.map(f => (f.id === activeFile.id ? { ...f, content: activeFile.content } : f)))
+    } catch (err) {
+      console.error(err)
+      showNotification('Error: failed to save file.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Commit the current branch state (snapshots power PR diffs)
+  const handleCommit = async () => {
+    if (!id || !activeBranch || !commitMessage.trim()) return
+    setIsCommitting(true)
+    try {
+      if (isDirty && activeFile) {
+        await saveFile(id, activeBranch.id, activeFile.path, activeFile.content || '')
+        setIsDirty(false)
+      }
+      await createCommit(id, activeBranch.id, commitMessage.trim())
+      setCommitMessage('')
+      setShowCommitBox(false)
+      showNotification('Changes committed.')
+    } catch (err) {
+      console.error(err)
+      showNotification('Error: failed to commit changes.')
+    } finally {
+      setIsCommitting(false)
+    }
+  }
+
+  const handleNewBranch = async () => {
+    if (!id) return
+    const name = window.prompt('New branch name (branched from ' + (activeBranch?.name || 'default') + '):')
+    if (!name || !name.trim()) return
+    try {
+      const branch = await createBranch(id, name.trim(), activeBranch?.id)
+      const updated = await getBranches(id)
+      setBranches(updated)
+      setActiveBranch(branch)
+      setIsBranchOpen(false)
+      showNotification(`Branch "${branch.name}" created.`)
+    } catch (err: any) {
+      showNotification(err.response?.data?.error || 'Error: failed to create branch.')
+    }
+  }
+
+  const handleToggleStar = async () => {
+    if (!id || !activeRepo || isStarring) return
+    setIsStarring(true)
+    try {
+      const result = await toggleStar(id)
+      setActiveRepo({ ...activeRepo, starred_by_me: result.starred, stars_count: result.stars_count })
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setIsStarring(false)
+    }
+  }
+
+  const handleNewFile = async () => {
+    if (!id || !activeBranch) return
+    const path = window.prompt('New file path (e.g. src/main.py):')
+    if (!path || !path.trim()) return
+    try {
+      const file = await saveFile(id, activeBranch.id, path.trim(), '')
+      const updated = await getFiles(id, activeBranch.id)
+      setFiles(updated)
+      const created = updated.find(f => f.path === file.path)
+      if (created) setActiveFile(created)
+      showNotification(`Created ${file.path}.`)
+    } catch (err: any) {
+      showNotification(err.response?.data?.error || 'Error: failed to create file.')
+    }
+  }
+
   // AI Actions
   const handleAIExplain = async () => {
     if (!activeFile?.content) return
@@ -183,8 +276,13 @@ export default function RepoView() {
     setIsRunning(true)
     setShowTerminal(true)
     setExecutionResult(null)
-    
+
     try {
+      // Persist unsaved edits first so what runs is what's on screen
+      if (isDirty && activeBranch) {
+        await saveFile(id, activeBranch.id, activeFile.path, activeFile.content || '')
+        setIsDirty(false)
+      }
       const result = await runFile(id, activeFile.path)
       setExecutionResult(result)
     } catch (err: any) {
@@ -238,9 +336,8 @@ export default function RepoView() {
         }
 
         // Fetch Metrics
-        const metricsRes = await getAdminMetrics()
-        const filtered = metricsRes.executions.filter((ex: any) => ex.repo_id === id) as any[]
-        setRepoMetrics(filtered)
+        const metricsRes = await getRepoMetrics(id!)
+        setRepoMetrics(metricsRes)
 
       } catch (err) {
         console.error(err)
@@ -273,6 +370,7 @@ export default function RepoView() {
 
     getFiles(id, activeBranch.id).then((fileData) => {
       setFiles(fileData)
+      setIsDirty(false)
     })
   }, [id, activeBranch?.id, setFiles])
 
@@ -311,23 +409,31 @@ export default function RepoView() {
     setTimeout(() => setNotification(null), 3000)
   }
 
-  const handleRepoAction = (action: string) => {
-    if (action === 'Clone') {
-      const url = `${window.location.origin}/repo/${id}.git`
-      navigator.clipboard.writeText(url)
-      showNotification('Success: Repository URL copied to clipboard.')
-    } else if (action === 'Download ZIP') {
-      showNotification('Info: Generating ZIP snapshot... download will start shortly.')
-    } else {
-      showNotification(`${action} functionality is being optimized.`)
-    }
-  }
-
   const handleEditorChange = (value: string | undefined) => {
-    if (value !== undefined) {
+    if (value !== undefined && activeFile) {
+      setActiveFile({ ...activeFile, content: value })
+      setIsDirty(true)
       socket.emit('file-change', { roomId: id, content: value })
     }
   }
+
+  const monacoLanguage = (() => {
+    const ext = activeFile?.path.split('.').pop()?.toLowerCase()
+    switch (ext) {
+      case 'ts': case 'tsx': return 'typescript'
+      case 'js': case 'jsx': case 'mjs': case 'cjs': return 'javascript'
+      case 'py': return 'python'
+      case 'cpp': case 'cc': case 'cxx': case 'h': case 'hpp': return 'cpp'
+      case 'json': return 'json'
+      case 'md': return 'markdown'
+      case 'css': return 'css'
+      case 'html': return 'html'
+      case 'yml': case 'yaml': return 'yaml'
+      case 'sql': return 'sql'
+      case 'sh': return 'shell'
+      default: return 'plaintext'
+    }
+  })()
 
   // Build file tree
   const buildTree = (files: FileNode[]): TreeNode[] => {
@@ -379,6 +485,7 @@ export default function RepoView() {
                 const file = files.find(f => f.id === node.id)
                 if (file) {
                   setActiveFile(file)
+                  setIsDirty(false)
                   setAIExplanation(null) // Reset AI box for NEW file
                 }
               }
@@ -463,17 +570,23 @@ export default function RepoView() {
         animate={{ opacity: 1 }}
         transition={{ duration: 0.4, delay: 0.15 }}
       >
-        {tabs.map((tab) => (
-          <button
-            key={tab.label}
-            className={`${styles['repo-tab']} ${activeTab === tab.label ? styles['repo-tab--active'] : ''}`}
-            onClick={() => setActiveTab(tab.label)}
-          >
-            <tab.icon size={16} />
-            {tab.label}
-            {tab.badge && <span className={styles['repo-tab-badge']}>{tab.badge}</span>}
-          </button>
-        ))}
+        {tabDefs.map((tab) => {
+          const badge =
+            tab.label === 'Issues' ? repoIssues.filter(i => i.status === 'open').length :
+            tab.label === 'Pull Requests' ? repoPRs.filter(p => p.status === 'open').length :
+            null
+          return (
+            <button
+              key={tab.label}
+              className={`${styles['repo-tab']} ${activeTab === tab.label ? styles['repo-tab--active'] : ''}`}
+              onClick={() => setActiveTab(tab.label)}
+            >
+              <tab.icon size={16} />
+              {tab.label}
+              {badge !== null && badge > 0 && <span className={styles['repo-tab-badge']}>{badge}</span>}
+            </button>
+          )
+        })}
       </motion.div>
 
       {/* Main Layout */}
@@ -517,20 +630,55 @@ export default function RepoView() {
                       </button>
                     ))}
                     {branches.length === 0 && <div style={{ padding: '8px 12px', fontSize: '0.8rem', color: 'var(--text-muted)'}}>No branches found.</div>}
+                    <div className="dropdown-divider" />
+                    <button className="dropdown-item" onClick={handleNewBranch}>
+                      + New branch
+                    </button>
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
 
             <div className={styles['branch-bar-actions']}>
-              <motion.button className="btn-ghost" whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => handleRepoAction('Clone')}>
-                <Copy size={14} /> Clone
+              <motion.button className="btn-ghost" whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={handleNewFile}>
+                <Plus size={14} /> New file
               </motion.button>
-              <motion.button className="btn-ghost" whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => handleRepoAction('Download ZIP')}>
-                <Download size={14} /> Download
+              <motion.button className="btn-ghost" whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => setShowCommitBox(!showCommitBox)}>
+                <GitCommitHorizontal size={14} /> Commit
               </motion.button>
             </div>
           </div>
+
+          {/* Commit Box */}
+          <AnimatePresence>
+            {showCommitBox && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                style={{ display: 'flex', gap: '8px', padding: '10px 0', alignItems: 'center' }}
+              >
+                <input
+                  className={styles['settings-input']}
+                  style={{ flex: 1 }}
+                  placeholder="Commit message (e.g. Add sorting to leaderboard)"
+                  value={commitMessage}
+                  onChange={(e) => setCommitMessage(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleCommit() }}
+                />
+                <motion.button
+                  className="btn-ghost"
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={handleCommit}
+                  disabled={isCommitting || !commitMessage.trim()}
+                >
+                  {isCommitting ? <Loader2 size={14} className="animate-spin" /> : <GitCommitHorizontal size={14} />}
+                  Commit to {activeBranch?.name || 'branch'}
+                </motion.button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Notification Toast */}
           <AnimatePresence>
@@ -598,7 +746,19 @@ export default function RepoView() {
                           {activeFile.path}
                         </div>
                         <div className={styles['editor-actions']}>
-                          <motion.button 
+                          <motion.button
+                            className={styles['ai-action-btn']}
+                            onClick={handleSave}
+                            disabled={isSaving || !isDirty}
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            title={isDirty ? 'Save changes to this branch' : 'No unsaved changes'}
+                          >
+                            {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                            {isDirty ? 'Save*' : 'Saved'}
+                          </motion.button>
+
+                          <motion.button
                             className={styles['ai-action-btn']}
                             onClick={handleAIExplain}
                             disabled={isAIExplaining}
@@ -630,8 +790,8 @@ export default function RepoView() {
                           <Editor
                             height="100%"
                             theme="vs-dark"
-                            defaultLanguage="typescript"
-                            value={activeFile.content || '// No content'}
+                            language={monacoLanguage}
+                            value={activeFile.content ?? ''}
                             onChange={handleEditorChange}
                             options={{
                               minimap: { enabled: false },
@@ -918,17 +1078,23 @@ export default function RepoView() {
           <div className={styles['repo-about-card']}>
             <div className={styles['repo-about-title']}>Health & Insights</div>
             <div className={styles['repo-stats-grid']}>
-              <div className={styles['stat-item']}>
-                <Star size={14} />
-                <span>0 Stars</span>
-              </div>
+              <button
+                className={styles['stat-item']}
+                onClick={handleToggleStar}
+                disabled={isStarring}
+                style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'inherit', font: 'inherit', padding: 0, display: 'flex', alignItems: 'center', gap: 'inherit' }}
+                title={activeRepo?.starred_by_me ? 'Unstar this repository' : 'Star this repository'}
+              >
+                <Star size={14} fill={activeRepo?.starred_by_me ? 'currentColor' : 'none'} style={{ color: activeRepo?.starred_by_me ? '#eab308' : 'inherit' }} />
+                <span>{activeRepo?.stars_count || 0} Stars</span>
+              </button>
               <div className={styles['stat-item']}>
                 <GitBranch size={14} />
                 <span>{branches.length} Branches</span>
               </div>
               <div className={styles['stat-item']}>
                 <Shield size={14} style={{ color: 'var(--accent-emerald)' }} />
-                <span>Secure</span>
+                <span>{activeRepo?.is_private ? 'Private' : 'Public'}</span>
               </div>
             </div>
           </div>
