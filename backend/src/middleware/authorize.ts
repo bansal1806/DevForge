@@ -44,6 +44,32 @@ export const verifyOwnership = (table: string, idParam: string = 'id', ownerColu
 };
 
 /**
+ * Validates that the logged-in user has the platform 'admin' role
+ * (users.role, added in migration 008). Use after requireAuth.
+ */
+export const requireAdmin = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+    const { data: profile, error } = await supabaseAdmin
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (error || !profile || profile.role !== 'admin') {
+      return res.status(403).json({ error: 'Permission denied: administrator role required' });
+    }
+
+    next();
+  } catch (err) {
+    console.error('Admin Authorization Error:', err);
+    res.status(500).json({ error: 'Internal server error during authorization' });
+  }
+};
+
+/**
  * Validates that the user has at least the required permission level for a repository.
  * Handles owner (implicit admin) and collaborator roles.
  */
@@ -53,10 +79,10 @@ export const verifyRepoAccess = (level: 'read' | 'write' | 'admin' = 'read', idP
       const user = req.user;
       const repoId = req.params[idParam];
 
-      if (!user) return res.status(401).json({ error: 'Authentication required' });
       if (!repoId) return res.status(400).json({ error: 'Repository ID is required' });
 
-      // 1. Check if user is the Owner
+      // 1. Look up the repository first — public repos are readable by anyone,
+      // including anonymous visitors (pair with optionalAuth on such routes).
       const { data: repo, error: repoError } = await supabaseAdmin
         .from('repositories')
         .select('owner_id, is_private')
@@ -65,6 +91,15 @@ export const verifyRepoAccess = (level: 'read' | 'write' | 'admin' = 'read', idP
 
       if (repoError || !repo) {
         return res.status(404).json({ error: 'Repository not found' });
+      }
+
+      if (level === 'read' && !repo.is_private) {
+        return next();
+      }
+
+      if (!user) {
+        // Hide the existence of private repos from anonymous requests
+        return res.status(repo.is_private ? 404 : 401).json({ error: repo.is_private ? 'Repository not found' : 'Authentication required' });
       }
 
       if (repo.owner_id === user.id) {

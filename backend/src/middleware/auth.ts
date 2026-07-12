@@ -11,6 +11,50 @@ export interface AuthenticatedRequest extends Request {
   supabase?: SupabaseClient; // User-scoped client
 }
 
+function createUserScopedClient(token: string): SupabaseClient {
+  const supabaseUrl = process.env.SUPABASE_URL || '';
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
+
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  });
+}
+
+/**
+ * Like requireAuth, but anonymous requests pass through with req.user unset.
+ * Use on routes that serve public resources but personalize for logged-in users.
+ */
+export async function optionalAuth(
+  req: AuthenticatedRequest,
+  _res: Response,
+  next: NextFunction
+): Promise<void> {
+  const authHeader = req.headers.authorization;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    try {
+      const { data, error } = await supabaseAdmin.auth.getUser(token);
+      if (!error && data.user) {
+        req.user = {
+          id: data.user.id,
+          email: data.user.email || '',
+          user_metadata: data.user.user_metadata || {},
+        };
+        req.supabase = createUserScopedClient(token);
+      }
+    } catch {
+      // Invalid token on an optional route — treat as anonymous.
+    }
+  }
+
+  next();
+}
+
 /**
  * Middleware to verify Supabase JWT from Authorization header.
  * Attaches user object and a user-scoped Supabase client to the request.
@@ -47,16 +91,7 @@ export async function requireAuth(
 
     // 3. Create a user-scoped Supabase client that respects RLS
     // This client uses the user's JWT instead of the service role key
-    const supabaseUrl = process.env.SUPABASE_URL || '';
-    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
-    
-    req.supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
-    });
+    req.supabase = createUserScopedClient(token);
 
     next();
   } catch (err) {

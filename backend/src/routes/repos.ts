@@ -1,17 +1,44 @@
 import { Router, Response } from 'express';
-import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
+import { AuthenticatedRequest, requireAuth, optionalAuth } from '../middleware/auth';
 import { verifyOwnership, verifyRepoAccess } from '../middleware/authorize';
 import { supabaseAdmin } from '../index';
 import { GitManager } from '../utils/git';
-import { migrateSqlToGit } from '../utils/migration';
 import { logger } from '../utils/logger';
 import { logAudit } from '../utils/audit';
+import {
+  getDefaultBranch,
+  getBranchById,
+  createCommitWithSnapshots,
+  isSafeRepoPath,
+} from '../utils/versioning';
 
 const router = Router();
 
+// Supabase SQL is the source of truth for file content and history.
+// On long-running hosts we also mirror writes into a real on-disk git repo
+// (used by the local Docker sandbox); serverless filesystems are read-only.
+const gitMirrorEnabled = !process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME;
+
+async function mirrorToGit(repoId: string, action: (git: GitManager) => Promise<void>) {
+  if (!gitMirrorEnabled) return;
+  try {
+    const git = new GitManager(repoId);
+    if (!git.exists()) await git.init();
+    await action(git);
+  } catch (err: any) {
+    logger.warn(`Git mirror skipped for repo ${repoId}: ${err.message}`);
+  }
+}
+
+function mapStarsCount(repo: any) {
+  if (!repo) return repo;
+  const { stars, ...rest } = repo;
+  return { ...rest, stars_count: Array.isArray(stars) ? stars[0]?.count || 0 : 0 };
+}
+
 /**
  * POST /api/repos
- * Create a new repository and initialize Git engine
+ * Create a repository with a default branch, README, and initial commit.
  */
 router.post('/', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -19,13 +46,16 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res: Response) =
     const { name, description, isPrivate } = req.body;
     const supabase = req.supabase!;
 
-    // 1. Create entry in Supabase
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'Repository name is required' });
+    }
+
     const { data: repo, error } = await supabase
       .from('repositories')
       .insert({
-        name,
+        name: name.trim(),
         description,
-        is_private: isPrivate,
+        is_private: !!isPrivate,
         owner_id: user.id,
         default_branch: 'main'
       })
@@ -34,20 +64,42 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res: Response) =
 
     if (error || !repo) {
       logger.error(`Failed to create repository record: ${error?.message}`);
+      if (error?.code === '23505') {
+        return res.status(409).json({ error: 'You already have a repository with that name' });
+      }
       return res.status(500).json({ error: 'Failed to create repository' });
     }
 
-    // 2. Initialize physical Git repository
-    const git = new GitManager(repo.id);
-    await git.init();
+    const { data: branch, error: branchError } = await supabaseAdmin
+      .from('branches')
+      .insert({ repo_id: repo.id, name: 'main', is_default: true })
+      .select()
+      .single();
 
-    await supabase.from('branches').insert({
+    if (branchError || !branch) {
+      logger.error(`Failed to create default branch: ${branchError?.message}`);
+      return res.status(500).json({ error: 'Failed to initialize repository branch' });
+    }
+
+    // Seed a README so the repo is never empty and PR diffs have a baseline
+    const readmeContent = `# ${repo.name}\n\n${description || 'Created with DevForge.'}\n`;
+    await supabaseAdmin.from('files').insert({
       repo_id: repo.id,
-      name: 'main',
-      is_default: true
+      branch_id: branch.id,
+      path: 'README.md',
+      content: readmeContent,
     });
 
-    // 4. Log Audit Entry
+    await createCommitWithSnapshots(repo.id, branch.id, user.id, 'Initial commit');
+
+    await mirrorToGit(repo.id, async (git) => {
+      await git.writeFile('README.md', readmeContent);
+      await git.commit('Initial commit', {
+        name: (user.user_metadata?.full_name as string) || 'Developer',
+        email: user.email,
+      });
+    });
+
     await logAudit({
       userId: user.id,
       repoId: repo.id,
@@ -72,7 +124,7 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response) =>
 
     const { data: repos, error } = await supabase
       .from('repositories')
-      .select('*')
+      .select('*, stars(count)')
       .eq('owner_id', user.id)
       .order('updated_at', { ascending: false });
 
@@ -81,29 +133,67 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response) =>
       return;
     }
 
-    res.json(repos || []);
+    res.json((repos || []).map(mapStarsCount));
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 /**
- * GET /api/repos/explore
+ * GET /api/repos/explore?q=<search>
  */
-router.get('/explore', async (_req, res: Response) => {
+router.get('/explore', async (req, res: Response) => {
   try {
-    const { data: repos, error } = await supabaseAdmin
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+
+    let query = supabaseAdmin
       .from('repositories')
-      .select('*, owner:users(id, name, avatar_url)')
-      .eq('is_private', false)
-      .limit(20);
+      .select('*, owner:users(id, name, avatar_url), stars(count)')
+      .eq('is_private', false);
+
+    if (q) {
+      query = query.or(`name.ilike.%${q.replace(/[%,()]/g, '')}%,description.ilike.%${q.replace(/[%,()]/g, '')}%`);
+    }
+
+    const { data: repos, error } = await query
+      .order('updated_at', { ascending: false })
+      .limit(30);
 
     if (error) {
       res.status(500).json({ error: 'Failed to fetch repositories' });
       return;
     }
 
-    res.json(repos || []);
+    res.json((repos || []).map(mapStarsCount));
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/repos/starred
+ * Repositories starred by the current user.
+ */
+router.get('/starred', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const user = req.user!;
+
+    const { data: rows, error } = await supabaseAdmin
+      .from('stars')
+      .select('created_at, repo:repositories(*, owner:users(id, name, avatar_url), stars(count))')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) return res.status(500).json({ error: 'Failed to fetch starred repositories' });
+
+    const repos = (rows || [])
+      .map((r: any) => r.repo)
+      .filter(Boolean)
+      // Never surface private repos the user has since lost access to
+      .filter((repo: any) => !repo.is_private || repo.owner_id === user.id)
+      .map(mapStarsCount);
+
+    res.json(repos);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -113,15 +203,15 @@ router.get('/explore', async (_req, res: Response) => {
  * GET /api/repos/:id
  * Secure read access: returns 404 if private and no access.
  */
-router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/:id', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
     const user = req.user;
-    
+
     // Always check as admin first to see if it's private
     const { data: repo, error } = await supabaseAdmin
       .from('repositories')
-      .select('*, owner:users(*)')
+      .select('*, owner:users(*), stars(count)')
       .eq('id', id)
       .single();
 
@@ -132,69 +222,114 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
     // IDOR Protection: If private, verify access
     if (repo.is_private) {
       if (!user) return res.status(404).json({ error: 'Repository not found' });
-      
-      // Check if user is owner or collaborator
+
       const isOwner = repo.owner_id === user.id;
       const { data: collab } = await supabaseAdmin
         .from('repo_collaborators')
         .select('permission')
         .eq('repo_id', id)
         .eq('user_id', user.id)
-        .single();
-        
+        .maybeSingle();
+
       if (!isOwner && !collab) {
         return res.status(404).json({ error: 'Repository not found' });
       }
     }
 
-    res.json(repo);
+    let starredByMe = false;
+    if (user) {
+      const { data: myStar } = await supabaseAdmin
+        .from('stars')
+        .select('id')
+        .eq('repo_id', id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      starredByMe = !!myStar;
+    }
+
+    res.json({ ...mapStarsCount(repo), starred_by_me: starredByMe });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 /**
- * File/Branch Read Access (GET)
+ * POST /api/repos/:id/star
+ * Toggle a star on a repository.
  */
-router.get('/:id/files', verifyRepoAccess('read'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:id/star', requireAuth, verifyRepoAccess('read'), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const id = req.params.id as string;
-    const { branchId } = req.query;
-    const git = new GitManager(id);
+    const { id } = req.params;
+    const user = req.user!;
 
-    // Ensure repo exists on disk (Auto-migrate if needed)
-    if (!git.exists()) {
-      await migrateSqlToGit(id);
+    const { data: existing } = await supabaseAdmin
+      .from('stars')
+      .select('id')
+      .eq('repo_id', id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (existing) {
+      await supabaseAdmin.from('stars').delete().eq('id', existing.id);
+    } else {
+      await supabaseAdmin.from('stars').insert({ repo_id: id, user_id: user.id });
     }
 
-    // List files from Git instead of SQL
-    const filePaths = await git.listFiles();
-    
-    // We map these to the FileNode structure for frontend compatibility
-    const files = await Promise.all(filePaths.map(async (filePath) => {
-      const content = await git.getFileContent(filePath);
-      return {
-        id: `${id}-${filePath}`, // Synthetic ID
-        repo_id: id,
-        path: filePath,
-        content: content,
-        updated_at: new Date().toISOString()
-      };
-    }));
+    const { count } = await supabaseAdmin
+      .from('stars')
+      .select('*', { count: 'exact', head: true })
+      .eq('repo_id', id);
 
-    res.json(files);
+    res.json({ starred: !existing, stars_count: count || 0 });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to toggle star' });
+  }
+});
+
+/**
+ * GET /api/repos/:id/files?branchId=<uuid>
+ * Reads file content from SQL (branch-scoped).
+ */
+router.get('/:id/files', optionalAuth, verifyRepoAccess('read'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    let branchId = typeof req.query.branchId === 'string' ? req.query.branchId : '';
+
+    if (!branchId) {
+      const defaultBranch = await getDefaultBranch(id);
+      branchId = defaultBranch?.id || '';
+    }
+
+    let query = supabaseAdmin.from('files').select('*').eq('repo_id', id).order('path');
+    const { data: files, error } = branchId
+      ? await query.eq('branch_id', branchId)
+      : await query;
+
+    if (error) throw new Error(error.message);
+
+    // Legacy fallback: rows created before branching landed have no branch_id
+    if ((!files || files.length === 0) && branchId) {
+      const { data: legacy } = await supabaseAdmin
+        .from('files')
+        .select('*')
+        .eq('repo_id', id)
+        .is('branch_id', null)
+        .order('path');
+      return res.json(legacy || []);
+    }
+
+    res.json(files || []);
   } catch (err: any) {
     logger.error(`Error fetching files for repo ${req.params.id}: ${err.message}`);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-router.get('/:id/branches', verifyRepoAccess('read'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/:id/branches', optionalAuth, verifyRepoAccess('read'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const supabase = req.supabase!;
 
-    const { data: branches, error } = await supabase
+    const { data: branches, error } = await supabaseAdmin
       .from('branches')
       .select('*')
       .eq('repo_id', id)
@@ -208,28 +343,91 @@ router.get('/:id/branches', verifyRepoAccess('read'), async (req: AuthenticatedR
 });
 
 /**
- * File/Branch Write Access (POST)
+ * GET /api/repos/:id/commits?branchId=<uuid>
+ */
+router.get('/:id/commits', optionalAuth, verifyRepoAccess('read'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const branchId = typeof req.query.branchId === 'string' ? req.query.branchId : '';
+
+    let query = supabaseAdmin
+      .from('commits')
+      .select('*, author:users(id, name, avatar_url)')
+      .eq('repo_id', id);
+    if (branchId) query = query.eq('branch_id', branchId);
+
+    const { data: commits, error } = await query.order('created_at', { ascending: false }).limit(50);
+    if (error) return res.status(500).json({ error: 'Failed to fetch commits' });
+    res.json(commits || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/repos/:id/metrics
+ * Execution stats for this repository (feeds the Insights tab).
+ */
+router.get('/:id/metrics', optionalAuth, verifyRepoAccess('read'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const { data: stats, error } = await supabaseAdmin
+      .from('execution_stats')
+      .select('*')
+      .eq('repo_id', id)
+      .order('created_at', { ascending: true })
+      .limit(200);
+
+    if (error) return res.status(500).json({ error: 'Failed to fetch metrics' });
+    res.json(stats || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/repos/:id/branches
+ * Creates a branch from an existing one, copying its files and commit pointer.
  */
 router.post('/:id/branches', requireAuth, verifyRepoAccess('write'), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id: repoId } = req.params;
+    const repoId = req.params.id as string;
     const { name, fromBranchId } = req.body;
-    const supabase = req.supabase!;
 
-    const { data: branch, error: branchError } = await supabase
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'Branch name is required' });
+    }
+
+    const sourceBranch = fromBranchId
+      ? await getBranchById(repoId, fromBranchId)
+      : await getDefaultBranch(repoId);
+
+    const { data: branch, error: branchError } = await supabaseAdmin
       .from('branches')
-      .insert({ repo_id: repoId, name })
+      .insert({
+        repo_id: repoId,
+        name: name.trim(),
+        // Same commit pointer as the source → a fresh branch diffs as "no changes"
+        last_commit_id: sourceBranch?.last_commit_id || null,
+      })
       .select()
       .single();
 
-    if (branchError) return res.status(500).json({ error: 'Failed to create branch' });
+    if (branchError) {
+      if (branchError.code === '23505') {
+        return res.status(409).json({ error: 'A branch with that name already exists' });
+      }
+      return res.status(500).json({ error: 'Failed to create branch' });
+    }
 
-    if (fromBranchId) {
-      const { data: sourceFiles } = await supabase
+    if (sourceBranch) {
+      const { data: sourceFiles } = await supabaseAdmin
         .from('files')
-        .select('*')
-        .eq('branch_id', fromBranchId);
-      
+        .select('path, content')
+        .eq('repo_id', repoId)
+        .eq('branch_id', sourceBranch.id);
+
       if (sourceFiles && sourceFiles.length > 0) {
         const newFiles = sourceFiles.map(f => ({
           repo_id: repoId,
@@ -237,64 +435,139 @@ router.post('/:id/branches', requireAuth, verifyRepoAccess('write'), async (req:
           path: f.path,
           content: f.content,
         }));
-        await supabase.from('files').insert(newFiles);
+        const { error: copyError } = await supabaseAdmin.from('files').insert(newFiles);
+        if (copyError) logger.error(`Branch file copy failed: ${copyError.message}`);
       }
     }
 
-    res.json(branch);
+    res.status(201).json(branch);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
+/**
+ * POST /api/repos/:id/files
+ * Save (upsert) a file on a branch.
+ */
 router.post('/:id/files', requireAuth, verifyRepoAccess('write'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const repoId = req.params.id as string;
-    const { path: filePath, content } = req.body;
-    const git = new GitManager(repoId);
+    const { path: filePath, content, branchId } = req.body;
 
-    if (!git.exists()) {
-      await migrateSqlToGit(repoId);
+    if (!isSafeRepoPath(filePath)) {
+      return res.status(400).json({ error: 'Invalid file path' });
     }
 
-    // Write to physical disk via Git manager
-    await git.writeFile(filePath, content);
+    const branch = branchId
+      ? await getBranchById(repoId, branchId)
+      : await getDefaultBranch(repoId);
 
-    res.json({ success: true, path: filePath });
+    if (!branch) {
+      return res.status(400).json({ error: 'Target branch not found' });
+    }
+
+    const { data: file, error } = await supabaseAdmin
+      .from('files')
+      .upsert(
+        {
+          repo_id: repoId,
+          branch_id: branch.id,
+          path: filePath,
+          content: content ?? '',
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'repo_id,branch_id,path' }
+      )
+      .select()
+      .single();
+
+    if (error) {
+      logger.error(`Error saving file for repo ${repoId}: ${error.message}`);
+      return res.status(500).json({ error: 'Failed to save file' });
+    }
+
+    await mirrorToGit(repoId, (git) => git.writeFile(filePath, content ?? ''));
+
+    res.json(file);
   } catch (err: any) {
     logger.error(`Error writing file for repo ${req.params.id}: ${err.message}`);
     res.status(500).json({ error: 'Failed to save file' });
   }
 });
 
+/**
+ * DELETE /api/repos/:id/files
+ * Remove a file from a branch.
+ */
+router.delete('/:id/files', requireAuth, verifyRepoAccess('write'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const repoId = req.params.id as string;
+    const { path: filePath, branchId } = req.body;
+
+    if (!isSafeRepoPath(filePath)) {
+      return res.status(400).json({ error: 'Invalid file path' });
+    }
+
+    const branch = branchId
+      ? await getBranchById(repoId, branchId)
+      : await getDefaultBranch(repoId);
+    if (!branch) return res.status(400).json({ error: 'Target branch not found' });
+
+    const { error } = await supabaseAdmin
+      .from('files')
+      .delete()
+      .eq('repo_id', repoId)
+      .eq('branch_id', branch.id)
+      .eq('path', filePath);
+
+    if (error) return res.status(500).json({ error: 'Failed to delete file' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete file' });
+  }
+});
+
+/**
+ * POST /api/repos/:id/commits
+ * Commit the current state of a branch: records the commit, snapshots every
+ * file (PR diffs read these snapshots), and advances the branch pointer.
+ */
 router.post('/:id/commits', requireAuth, verifyRepoAccess('write'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const user = req.user!;
     const repoId = req.params.id as string;
-    const { message } = req.body;
-    const git = new GitManager(repoId);
+    const { message, branchId } = req.body;
 
-    if (!git.exists()) {
-      await migrateSqlToGit(repoId);
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ error: 'Commit message is required' });
     }
 
-    // Perform actual Git commit
-    const authorName = (user.user_metadata?.full_name as string) || 'Developer';
-    await git.commit(message, { name: authorName, email: user.email! });
+    const branch = branchId
+      ? await getBranchById(repoId, branchId)
+      : await getDefaultBranch(repoId);
 
-    // We still log the commit metadata in Supabase for tracking/activity
-    const supabase = req.supabase!;
-    const { data: commit } = await supabase
-      .from('commits')
-      .insert({ 
-        repo_id: repoId, 
-        author_id: user.id, 
-        message 
-      })
-      .select()
-      .single();
+    if (!branch) {
+      return res.status(400).json({ error: 'Target branch not found' });
+    }
 
-    res.json(commit);
+    const commit = await createCommitWithSnapshots(repoId, branch.id, user.id, message.trim());
+
+    await mirrorToGit(repoId, (git) =>
+      git.commit(message.trim(), {
+        name: (user.user_metadata?.full_name as string) || 'Developer',
+        email: user.email,
+      }).then(() => undefined)
+    );
+
+    await logAudit({
+      userId: user.id,
+      repoId,
+      action: 'commit_created',
+      metadata: { message: message.trim(), branch: branch.name }
+    });
+
+    res.status(201).json(commit);
   } catch (err: any) {
     logger.error(`Error committing for repo ${req.params.id}: ${err.message}`);
     res.status(500).json({ error: 'Failed to create commit' });
@@ -361,9 +634,8 @@ router.delete('/:id', requireAuth, verifyOwnership('repositories'), async (req: 
 router.get('/:id/collaborators', requireAuth, verifyRepoAccess('read'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const supabase = req.supabase!;
 
-    const { data: collaborators, error } = await supabase
+    const { data: collaborators, error } = await supabaseAdmin
       .from('repo_collaborators')
       .select('*, user:users(id, name, email)')
       .eq('repo_id', id)
