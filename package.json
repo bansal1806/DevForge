@@ -2,10 +2,13 @@
   "name": "devforge-monorepo",
   "private": true,
   "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev:backend\" \"npm:dev:frontend\"",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
     "build:frontend": "cd frontend && npm run build",
-    "build:backend": "cd backend && npm run build"
+    "build:backend": "cd backend && npm run build",
+    "test": "cd backend && npm test",
+    "seed": "cd backend && npm run seed"
   },
   "workspaces": [
     "frontend",
@@ -27,6 +30,7 @@
   "devDependencies": {
     "typescript": "^6.0.2",
     "@types/node": "^25.5.2",
-    "@types/express": "^5.0.6"
+    "@types/express": "^5.0.6",
+    "concurrently": "^9.1.0"
   }
 }
