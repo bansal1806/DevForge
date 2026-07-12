@@ -1,22 +1,22 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { 
-  User, 
-  MapPin, 
-  Link as LinkIcon, 
-  GitCommit, 
-  GitPullRequest, 
+import {
+  User,
+  MapPin,
+  GitCommit,
+  GitPullRequest,
   CircleDot
 } from 'lucide-react'
-import type { UserProfile, ActivityItem } from '../../lib/api'
-import { getUserProfile, getUserActivity } from '../../lib/api'
+import type { UserProfile, ActivityItem, Repository } from '../../lib/api'
+import { getUserProfile, getUserActivity, getUserRepos } from '../../lib/api'
 import styles from './Profile.module.css'
 
 export default function Profile() {
   const { id } = useParams<{ id: string }>()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [activity, setActivity] = useState<ActivityItem[]>([])
+  const [repos, setRepos] = useState<Repository[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -24,12 +24,14 @@ export default function Profile() {
       if (!id) return
       setLoading(true)
       try {
-        const [profileData, activityData] = await Promise.all([
+        const [profileData, activityData, repoData] = await Promise.all([
           getUserProfile(id),
-          getUserActivity(id)
+          getUserActivity(id),
+          getUserRepos(id)
         ])
         setProfile(profileData)
         setActivity(activityData)
+        setRepos(repoData)
       } catch (err) {
         console.error('Error fetching profile data:', err)
       } finally {
@@ -69,19 +71,12 @@ export default function Profile() {
             <h1 className={styles['user-name']}>{profile.name}</h1>
             <div className={styles['user-handle']}>@{profile.name.toLowerCase().replace(/\s/g, '_')}</div>
             <p className={styles['user-bio']}>
-              {profile.bio || 'Full stack developer building the future of open source. Committed to code quality and cyber-command aesthetics.'}
+              {profile.bio || 'This developer has not added a bio yet.'}
             </p>
-            
-            <button className="btn-ghost" style={{ width: '100%', marginBottom: '20px' }}>
-              Edit Profile
-            </button>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <MapPin size={16} /> San Francisco, CA
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <LinkIcon size={16} /> devforge.io/blog
+                <MapPin size={16} /> Joined {new Date(profile.created_at).toLocaleDateString()}
               </div>
             </div>
           </div>
@@ -92,16 +87,16 @@ export default function Profile() {
           {/* Stats Bar */}
           <div className={styles['profile-stats-grid']}>
             <div className={styles['stat-card']}>
-              <span className={styles['stat-value']}>12</span>
-              <span className={styles['stat-label']}>Repositories</span>
+              <span className={styles['stat-value']}>{repos.length}</span>
+              <span className={styles['stat-label']}>Public Repositories</span>
             </div>
             <div className={styles['stat-card']}>
-              <span className={styles['stat-value']}>482</span>
-              <span className={styles['stat-label']}>Contributions</span>
+              <span className={styles['stat-value']}>{activity.length}</span>
+              <span className={styles['stat-label']}>Recent Activities</span>
             </div>
             <div className={styles['stat-card']}>
-              <span className={styles['stat-value']}>15</span>
-              <span className={styles['stat-label']}>Starred</span>
+              <span className={styles['stat-value']}>{repos.reduce((sum, r) => sum + (r.stars_count || 0), 0)}</span>
+              <span className={styles['stat-label']}>Stars Earned</span>
             </div>
           </div>
 

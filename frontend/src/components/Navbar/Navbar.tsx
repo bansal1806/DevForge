@@ -32,7 +32,7 @@ export default function Navbar() {
   const handleSubmitSearch = (e?: React.FormEvent) => {
     e?.preventDefault()
     if (searchQuery.trim()) {
-      navigate(`/repositories?search=${encodeURIComponent(searchQuery)}`)
+      navigate(`/explore?q=${encodeURIComponent(searchQuery)}`)
       setSearchQuery('')
       setActiveDropdown(null)
     }

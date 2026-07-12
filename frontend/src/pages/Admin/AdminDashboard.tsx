@@ -117,9 +117,9 @@ export default function AdminDashboard() {
 
       {/* Stats Cards */}
       <div className={styles['stats-grid']}>
-        <StatCard label="Total Users" value={metrics?.users || 0} icon={<Users size={20} />} trend="+12% vs last month" />
-        <StatCard label="Repositories" value={metrics?.repos || 0} icon={<GitBranch size={20} />} trend="+5% vs last month" />
-        <StatCard label="Code Runs" value={metrics?.executions.length || 0} icon={<Terminal size={20} />} trend="Real-time tracking" />
+        <StatCard label="Total Users" value={metrics?.users || 0} icon={<Users size={20} />} trend="Registered accounts" />
+        <StatCard label="Repositories" value={metrics?.repos || 0} icon={<GitBranch size={20} />} trend="Across all users" />
+        <StatCard label="Code Runs" value={metrics?.executions.length || 0} icon={<Terminal size={20} />} trend="Sandboxed executions" />
       </div>
 
       {/* Charts & Logs */}
