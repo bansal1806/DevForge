@@ -2,9 +2,12 @@ import winston from 'winston';
 import path from 'path';
 import fs from 'fs';
 
-// Ensure logs directory exists
+// Serverless filesystems (Vercel/AWS Lambda) are read-only outside /tmp — file
+// transports would crash at module load, so only use them on long-running hosts.
+const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+
 const logDir = 'logs';
-if (!fs.existsSync(logDir)) {
+if (!isServerless && !fs.existsSync(logDir)) {
   fs.mkdirSync(logDir);
 }
 
@@ -14,26 +17,30 @@ const logFormat = winston.format.combine(
   winston.format.json()
 );
 
+const fileTransports = isServerless ? [] : [
+  // 1. Error logs (Persistent)
+  new winston.transports.File({
+    filename: path.join(logDir, 'error.log'),
+    level: 'error'
+  }),
+  // 2. Auth logs (Audit trail)
+  new winston.transports.File({
+    filename: path.join(logDir, 'auth.log'),
+    level: 'info',
+    format: winston.format.combine(
+      winston.format.label({ label: 'AUTH' }),
+      logFormat
+    )
+  }),
+];
+
 // Create the logger instance
 export const logger = winston.createLogger({
   level: 'info',
   format: logFormat,
   transports: [
-    // 1. Error logs (Persistent)
-    new winston.transports.File({ 
-      filename: path.join(logDir, 'error.log'), 
-      level: 'error' 
-    }),
-    // 2. Auth logs (Audit trail)
-    new winston.transports.File({ 
-      filename: path.join(logDir, 'auth.log'),
-      level: 'info',
-      format: winston.format.combine(
-        winston.format.label({ label: 'AUTH' }),
-        logFormat
-      )
-    }),
-    // 3. Console (Real-time monitoring)
+    ...fileTransports,
+    // Console (Real-time monitoring; the only transport on serverless)
     new winston.transports.Console({
       format: winston.format.combine(
         winston.format.colorize(),

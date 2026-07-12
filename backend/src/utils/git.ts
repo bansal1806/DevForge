@@ -5,8 +5,15 @@ import { logger } from './logger';
 
 const REPO_BASE_PATH = path.join(process.cwd(), 'data', 'repos');
 
-// Ensure base path exists
-fs.ensureDirSync(REPO_BASE_PATH);
+// Ensure base path exists. Serverless filesystems are read-only — the git
+// mirror is disabled there, so a failure here must not crash module load.
+try {
+  if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    fs.ensureDirSync(REPO_BASE_PATH);
+  }
+} catch {
+  // Read-only filesystem — git mirroring will be skipped.
+}
 
 export class GitManager {
   private repoPath: string;
