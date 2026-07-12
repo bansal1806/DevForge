@@ -1,16 +1,20 @@
-import { Router, Response } from 'express';
+﻿import { Router, Response } from 'express';
 import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
+import { requireAdmin } from '../middleware/authorize';
 import { supabaseAdmin } from '../index';
 import { SandboxService } from '../services/sandbox';
 import { logger } from '../utils/logger';
 
 const router = Router();
 
+// All admin endpoints require the platform 'admin' role (users.role)
+router.use(requireAuth, requireAdmin);
+
 /**
  * GET /api/admin/system-health
  * High-fidelity health check for all core infrastructure
  */
-router.get('/system-health', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/system-health', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const health = {
       api: 'online',
@@ -42,7 +46,7 @@ router.get('/system-health', requireAuth, async (req: AuthenticatedRequest, res:
  * GET /api/admin/metrics
  * Site-wide usage and storage analytics
  */
-router.get('/metrics', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/metrics', async (req: AuthenticatedRequest, res: Response) => {
   try {
     // 1. Execution Ratios
     const { data: stats, error: statsError } = await supabaseAdmin
@@ -76,7 +80,7 @@ router.get('/metrics', requireAuth, async (req: AuthenticatedRequest, res: Respo
  * GET /api/admin/logs
  * Global activity feed
  */
-router.get('/logs', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/logs', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { data: logs, error } = await supabaseAdmin
       .from('audit_logs')

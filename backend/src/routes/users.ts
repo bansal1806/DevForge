@@ -41,7 +41,7 @@ router.get('/:id/repos', async (req: AuthenticatedRequest, res: Response) => {
 
     const { data: repos, error } = await supabase
       .from('repositories')
-      .select('id, name, description, is_private, created_at, updated_at')
+      .select('id, name, description, is_private, created_at, updated_at, stars(count)')
       .eq('owner_id', id)
       .eq('is_private', false)
       .order('updated_at', { ascending: false });
@@ -51,7 +51,59 @@ router.get('/:id/repos', async (req: AuthenticatedRequest, res: Response) => {
       return;
     }
 
-    res.json(repos || []);
+    res.json((repos || []).map((repo: any) => {
+      const { stars, ...rest } = repo;
+      return { ...rest, stars_count: Array.isArray(stars) ? stars[0]?.count || 0 : 0 };
+    }));
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/users/:id/activity
+ * Recent public activity for a user's profile page.
+ */
+router.get('/:id/activity', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const { data: logs, error } = await supabaseAdmin
+      .from('audit_logs')
+      .select('id, user_id, repo_id, action, metadata, created_at, repository:repositories(name, is_private)')
+      .eq('user_id', id)
+      .order('created_at', { ascending: false })
+      .limit(30);
+
+    if (error) {
+      res.status(500).json({ error: 'Failed to fetch activity' });
+      return;
+    }
+
+    // Only expose activity on public repositories, mapped to the timeline
+    // shape the profile page renders (type: commit | pr | issue).
+    const typeByAction: Record<string, 'commit' | 'pr' | 'issue'> = {
+      commit_created: 'commit',
+      repo_created: 'commit',
+      pr_merged: 'pr',
+    };
+
+    const activity = (logs || [])
+      .filter((log: any) => !log.repository || !log.repository.is_private)
+      .filter((log: any) => typeByAction[log.action])
+      .map((log: any) => ({
+        id: log.id,
+        type: typeByAction[log.action],
+        message: log.action === 'repo_created'
+          ? `Created repository ${log.metadata?.name || ''}`.trim()
+          : log.metadata?.message,
+        title: log.metadata?.title,
+        repo_id: log.repo_id,
+        repo: log.repository ? { name: log.repository.name } : undefined,
+        created_at: log.created_at,
+      }));
+
+    res.json(activity);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
   }

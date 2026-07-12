@@ -78,6 +78,47 @@ router.post('/login', async (req: AuthenticatedRequest, res: Response) => {
 });
 
 /**
+ * POST /api/auth/demo
+ * One-click guest access: signs in a shared demo account, creating it on
+ * first use. Lets visitors explore the platform without registering.
+ */
+router.post('/demo', async (_req, res: Response) => {
+  try {
+    const email = process.env.DEMO_USER_EMAIL || 'demo@devforge.example.com';
+    const password = process.env.DEMO_USER_PASSWORD || 'devforge-demo-2026!';
+
+    let { data, error } = await supabaseAdmin.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      // First run: create the demo account (auto-confirmed), then sign in
+      const { error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: 'Demo Explorer' },
+      });
+
+      if (createError && !createError.message.toLowerCase().includes('already')) {
+        logger.error(`Demo user provisioning failed: ${createError.message}`);
+        return res.status(500).json({ error: 'Demo access is temporarily unavailable' });
+      }
+
+      ({ data, error } = await supabaseAdmin.auth.signInWithPassword({ email, password }));
+      if (error) {
+        logAuth(email, 'failure', `Demo login failed: ${error.message}`);
+        return res.status(500).json({ error: 'Demo access is temporarily unavailable' });
+      }
+    }
+
+    logAuth(email, 'success', 'Demo user logged in');
+    res.json(data);
+  } catch (err: any) {
+    logger.error(`Unhandled demo login error: ${err.message}`);
+    res.status(500).json({ error: 'Internal server error during demo login' });
+  }
+});
+
+/**
  * GET /api/auth/me
  */
 router.get('/me', requireAuth, async (req: AuthenticatedRequest, res: Response) => {

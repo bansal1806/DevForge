@@ -42,6 +42,9 @@ export class PistonService {
       case 'javascript':
       case 'js':
         return { language: 'js', version: '*' };
+      case 'typescript':
+      case 'ts':
+        return { language: 'typescript', version: '*' };
       case 'python':
       case 'py':
         return { language: 'python', version: '*' };
