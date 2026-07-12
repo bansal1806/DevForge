@@ -1,22 +1,16 @@
 import axios from 'axios'
 import { supabase } from './supabase'
 
+// Request paths always include the /api prefix, so the base URL must be the
+// bare origin — strip any trailing slash or /api suffix from the env value.
 const rawBaseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
-const baseURL = rawBaseURL.endsWith('/') ? rawBaseURL.slice(0, -1) : rawBaseURL
+const baseURL = rawBaseURL.replace(/\/+$/, '').replace(/\/api$/, '')
 
 const apiClient = axios.create({
   baseURL,
   headers: {
     'Content-Type': 'application/json',
   },
-})
-
-// Unified path joining to prevent double /api
-apiClient.interceptors.request.use((config) => {
-  if (config.url?.startsWith('/api') && baseURL.endsWith('/api')) {
-    config.url = config.url.replace('/api', '')
-  }
-  return config
 })
 
 // Add a request interceptor to attach the Supabase access token

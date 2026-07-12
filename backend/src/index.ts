@@ -27,10 +27,18 @@ import { logger } from './utils/logger';
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', 1); // Trust first proxy for correct IP rate limiting in serverless environments
 const httpServer = createServer(app);
+
+// FRONTEND_URL accepts a comma-separated list so preview deployments can be allowed too.
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: allowedOrigins,
     credentials: true,
   },
 });
@@ -81,6 +89,12 @@ const aiLimiter = rateLimit({
   message: { error: 'AI generation limit reached. Please wait a moment.' }
 });
 
+// Health Check — registered before limiters/bot-blocking so monitoring tools
+// (which often use curl-like User-Agents) are never rejected.
+app.get('/api/health', (_req, res) => {
+  res.status(200).json({ status: 'ok', service: 'DevForge API', timestamp: new Date().toISOString() });
+});
+
 // Apply Global & Abuse Protection
 app.use('/api/', globalLimiter);
 app.use('/api/', blockBots);
@@ -88,11 +102,11 @@ app.use('/api/', limitPayloadSize(1024 * 1024)); // Default to 1MB
 
 // Specialized Limiters
 app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/demo', authLimiter);
 app.use('/api/auth/signup', signupLimiter);
 app.use('/api/ai/', aiLimiter);
 
 // --- CORS ---
-const allowedOrigins = [process.env.FRONTEND_URL || 'http://localhost:5173'];
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -114,7 +128,12 @@ if (!supabaseUrl || !supabaseKey) {
   logger.error('⚠️  Supabase URL or Service Role Key is missing. Check your .env file!');
 }
 
-export const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
+// Placeholder fallbacks keep module load (and the test suite) from crashing
+// when env vars are absent; real requests will fail loudly instead.
+export const supabaseAdmin = createClient(
+  supabaseUrl || 'http://supabase-not-configured.localhost',
+  supabaseKey || 'missing-service-role-key'
+);
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -127,11 +146,6 @@ app.use('/api/activity', activityRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/execute', executeRoutes);
 app.use('/api/admin', adminRoutes);
-
-// Health Check
-app.get('/api/health', (_req, res) => {
-  res.status(200).json({ status: 'ok', service: 'DevForge API', timestamp: new Date().toISOString() });
-});
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
