@@ -19,6 +19,7 @@ import adminRoutes from './routes/admin';
 import { attachRealtime } from './realtime';
 
 import { blockBots, limitPayloadSize } from './middleware/abuseProtection';
+import { PostgresRateLimitStore } from './middleware/rateLimitStore';
 import { logger } from './utils/logger';
 
 export { supabaseAdmin } from './lib/supabase';
@@ -81,9 +82,15 @@ app.get('/api/health', (_req, res) => {
 });
 
 // --- RATE LIMITERS ---
-// Note: the default store is in-memory, i.e. per instance. On serverless this
-// is a soft limit; use a shared store (e.g. Redis) for strict enforcement.
+// The global limiter uses the in-memory store (per instance — a soft limit on
+// serverless, but free). Abuse-sensitive limiters share counters through
+// Postgres so they hold across instances; if the database is unreachable they
+// fail open instead of taking the API down. Tests use memory stores.
 const limiterDefaults = { standardHeaders: 'draft-8', legacyHeaders: false } as const;
+const sharedStore = (prefix: string) =>
+  process.env.NODE_ENV === 'test'
+    ? {}
+    : { store: new PostgresRateLimitStore(prefix), passOnStoreError: true };
 
 const globalLimiter = rateLimit({
   ...limiterDefaults,
@@ -96,6 +103,7 @@ const authLimiter = rateLimit({
   ...limiterDefaults,
   windowMs: 15 * 60 * 1000,
   limit: 10,
+  ...sharedStore('auth'),
   message: { error: 'Too many authentication attempts. Please try again in 15 minutes.' }
 });
 
@@ -103,6 +111,7 @@ const signupLimiter = rateLimit({
   ...limiterDefaults,
   windowMs: 60 * 60 * 1000,
   limit: 5,
+  ...sharedStore('signup'),
   message: { error: 'Account creation limit reached. Please try again later.' }
 });
 
@@ -110,6 +119,7 @@ const aiLimiter = rateLimit({
   ...limiterDefaults,
   windowMs: 60 * 1000,
   limit: 10,
+  ...sharedStore('ai'),
   message: { error: 'AI generation limit reached. Please wait a moment.' }
 });
 
@@ -117,6 +127,7 @@ const executionLimiter = rateLimit({
   ...limiterDefaults,
   windowMs: 60 * 1000,
   limit: 10,
+  ...sharedStore('execute'),
   message: { error: 'Execution limit reached. Please wait a moment.' }
 });
 

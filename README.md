@@ -43,7 +43,7 @@ graph TD
 |---|---|
 | Frontend | React 19, TypeScript, Vite, Monaco Editor, Zustand, Framer Motion, Recharts |
 | Backend | Node.js, Express 5, TypeScript, Socket.IO, Winston |
-| Data & auth | Supabase (Postgres + Auth + RLS), 10 versioned SQL migrations |
+| Data & auth | Supabase (Postgres + Auth + RLS), 11 versioned SQL migrations |
 | Execution | Docker (dockerode) locally, Piston API in the cloud |
 | AI | OpenAI API (optional, mock-mode fallback) |
 | CI | GitHub Actions — dependency audit, type-check, tests (Vitest + Supertest + PGlite), lint, build |
@@ -66,7 +66,7 @@ cp frontend/.env.example frontend/.env
 #    → fill in VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 
 # 3. Apply the database schema in the Supabase SQL editor:
-#    supabase_schema.sql, then migrations/002 → 010 in order
+#    supabase_schema.sql, then migrations/002 → 011 in order
 
 # 4. Seed demo data (demo account, repos, an open PR, a gist)
 npm run seed
@@ -95,7 +95,7 @@ The shared demo account can explore, edit, branch, open PRs and run code, but ca
 
 The repo deploys to **Vercel** as-is (`vercel.json`): the Express app runs as a serverless function behind `/api/*`, the Vite build is served statically with an SPA fallback. In this mode, code execution automatically uses Piston, and Socket.IO collaboration is inactive (serverless functions can't hold websockets; set `VITE_ENABLE_REALTIME=false`) — deploy the backend to a long-running host (Render/Railway/Fly) and point `VITE_API_BASE_URL` at it to enable live collaboration and the Docker sandbox in production.
 
-Rate limits use the in-memory store, which is per instance; on serverless they are a soft limit. Use a shared store (e.g. Redis) for strict enforcement.
+Rate limits for login, signup, AI and code execution are shared across serverless instances through Postgres (`migrations/011`, `backend/src/middleware/rateLimitStore.ts` — fixed windows, hashed client keys, fail-open if the database is unreachable). The general API limiter stays in memory (per instance) to avoid a database round-trip on every request.
 
 ## Testing & CI
 

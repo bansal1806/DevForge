@@ -282,6 +282,33 @@ describe('commits and three-way merge', () => {
   });
 });
 
+describe('shared rate limits', () => {
+  const hit = async (key: string) => (await one(`SELECT rate_limit_hit($1, 60000) AS r`, [key])).r;
+
+  it('counts hits per key within a window', async () => {
+    expect((await hit('auth:k1')).hits).toBe(1);
+    expect((await hit('auth:k1')).hits).toBe(2);
+    expect((await hit('auth:k2')).hits).toBe(1);
+
+    const r = await hit('auth:k1');
+    expect(r.hits).toBe(3);
+    expect(new Date(r.reset_at).getTime()).toBeGreaterThan(Date.now() - 1000);
+  });
+
+  it('supports decrement and reset', async () => {
+    await q(`SELECT rate_limit_decrement('auth:k1', 60000)`);
+    expect((await hit('auth:k1')).hits).toBe(3);
+    await q(`SELECT rate_limit_reset('auth:k1')`);
+    expect((await hit('auth:k1')).hits).toBe(1);
+  });
+
+  it('rejects tiny windows and is service-role only', async () => {
+    await expect(q(`SELECT rate_limit_hit('x', 10)`)).rejects.toThrow(/at least 1000ms/);
+    await expect(asRole(A, () => q(`SELECT rate_limit_hit('x', 60000)`))).rejects.toThrow(/permission denied/);
+    await expect(asRole(A, () => q(`SELECT * FROM rate_limits`))).rejects.toThrow(/permission denied/);
+  });
+});
+
 describe('account deletion', () => {
   it('cascades without FK violations', async () => {
     await expect(q(`DELETE FROM auth.users WHERE id = '${B}'`)).resolves.toBeDefined();
