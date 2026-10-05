@@ -3,14 +3,77 @@ import { useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   User,
-  MapPin,
+  Calendar,
   GitCommit,
   GitPullRequest,
-  CircleDot
+  CircleDot,
+  Pencil
 } from 'lucide-react'
 import type { UserProfile, ActivityItem, Repository } from '../../lib/api'
-import { getUserProfile, getUserActivity, getUserRepos } from '../../lib/api'
+import { getUserProfile, getUserActivity, getUserRepos, updateProfile, getErrorMessage } from '../../lib/api'
+import { useAuth } from '../../contexts/AuthContext'
 import styles from './Profile.module.css'
+
+const fieldStyle = {
+  width: '100%',
+  padding: '8px 10px',
+  borderRadius: '8px',
+  border: '1px solid var(--border-glass)',
+  background: 'rgba(255,255,255,0.03)',
+  color: 'inherit',
+  font: 'inherit',
+} as const
+
+function ProfileEditor({ profile, onSaved, onCancel }: {
+  profile: UserProfile
+  onSaved: (updated: UserProfile) => void
+  onCancel: () => void
+}) {
+  const [name, setName] = useState(profile.name || '')
+  const [bio, setBio] = useState(profile.bio || '')
+  const [avatarUrl, setAvatarUrl] = useState(profile.avatar_url || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (avatarUrl && !/^https:\/\//i.test(avatarUrl)) {
+      setError('Avatar URL must start with https://')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      onSaved(await updateProfile({ name: name.trim(), bio: bio.trim(), avatar_url: avatarUrl.trim() }))
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to update profile.'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+      <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        Name
+        <input style={fieldStyle} value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
+      </label>
+      <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        Bio
+        <textarea style={{ ...fieldStyle, minHeight: '80px', resize: 'vertical' }} value={bio} maxLength={500} onChange={(e) => setBio(e.target.value)} />
+      </label>
+      <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        Avatar URL
+        <input style={fieldStyle} value={avatarUrl} maxLength={2048} placeholder="https://..." onChange={(e) => setAvatarUrl(e.target.value)} />
+      </label>
+      {error && <div style={{ color: '#ef4444', fontSize: '0.85rem' }}>{error}</div>}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button type="submit" className="btn-ghost" disabled={saving}>{saving ? 'Saving…' : 'Save profile'}</button>
+        <button type="button" className="btn-ghost" onClick={onCancel} disabled={saving}>Cancel</button>
+      </div>
+    </form>
+  )
+}
 
 export default function Profile() {
   const { id } = useParams<{ id: string }>()
@@ -18,6 +81,9 @@ export default function Profile() {
   const [activity, setActivity] = useState<ActivityItem[]>([])
   const [repos, setRepos] = useState<Repository[]>([])
   const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(false)
+  const { user } = useAuth()
+  const isOwnProfile = !!user && user.id === id
 
   useEffect(() => {
     async function fetchData() {
@@ -66,17 +132,32 @@ export default function Profile() {
               <User size={80} className={styles['avatar-placeholder']} />
             )}
           </div>
-          
+
           <div className={styles['profile-info']}>
-            <h1 className={styles["user-name"]}>{profile.name || "Developer"}</h1>
-            <div className={styles['user-handle']}>@{(profile.name || 'developer').toLowerCase().replace(/\s/g, '_')}</div>
-            <p className={styles['user-bio']}>
-              {profile.bio || 'This developer has not added a bio yet.'}
-            </p>
+            {editing ? (
+              <ProfileEditor
+                profile={profile}
+                onSaved={(updated) => { setProfile({ ...profile, ...updated }); setEditing(false) }}
+                onCancel={() => setEditing(false)}
+              />
+            ) : (
+              <>
+                <h1 className={styles["user-name"]}>{profile.name || "Developer"}</h1>
+                <div className={styles['user-handle']}>@{(profile.name || 'developer').toLowerCase().replace(/\s/g, '_')}</div>
+                <p className={styles['user-bio']}>
+                  {profile.bio || 'This developer has not added a bio yet.'}
+                </p>
+                {isOwnProfile && (
+                  <button className="btn-ghost" onClick={() => setEditing(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginBottom: '16px' }}>
+                    <Pencil size={14} /> Edit profile
+                  </button>
+                )}
+              </>
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <MapPin size={16} /> Joined {new Date(profile.created_at).toLocaleDateString()}
+                <Calendar size={16} /> Joined {new Date(profile.created_at).toLocaleDateString()}
               </div>
             </div>
           </div>
@@ -103,13 +184,13 @@ export default function Profile() {
           {/* Activity Timeline */}
           <div className={styles['timeline-container']}>
             <h2 style={{ fontSize: '1.25rem', color: 'white', marginBottom: '24px' }}>Latest Activity</h2>
-            
+
             {activity.length === 0 ? (
               <div style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No recent public activity.</div>
             ) : (
               activity.map((item, i) => (
-                <motion.div 
-                  key={item.id} 
+                <motion.div
+                  key={item.id}
                   className={styles['timeline-item']}
                   initial={{ opacity: 0, x: 10 }}
                   animate={{ opacity: 1, x: 0 }}
