@@ -13,17 +13,25 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Type-check backend
         run: npx tsc --noEmit -p backend
 
+      # Includes migration tests: the real schema + migrations run against an
+      # in-process Postgres (PGlite) to verify RLS, triggers and merge logic.
       - name: Backend tests
         run: npm test --workspace backend
+
+      - name: Lint frontend
+        run: npm run lint --workspace frontend
 
       - name: Build frontend
         run: npm run build --workspace frontend

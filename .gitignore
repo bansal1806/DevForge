@@ -41,3 +41,8 @@ yarn-error.log*
 Thumbs.db
 ehthumbs.db
 [Dd]esktop.ini
+
+# Runtime data (git mirror for the local sandbox) and logs, wherever the API runs from
+data/
+backend/data/
+logs/
