@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../index'
+import { supabaseAdmin } from '../lib/supabase'
 
 export interface AuditLogParams {
   userId: string;
