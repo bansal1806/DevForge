@@ -17,7 +17,7 @@ import {
   AlertTriangle,
   XCircle
 } from 'lucide-react'
-import type { PullRequest, DiffMap, PullRequestDetail } from '../../lib/api'
+import type { PullRequest, DiffMap, PullRequestDetail, MergePreview } from '../../lib/api'
 import {
   getPullRequestById,
   mergePullRequest,
@@ -39,6 +39,7 @@ export default function PRDetail() {
   const [diff, setDiff] = useState<DiffMap | null>(null)
   const [permissions, setPermissions] = useState<PullRequestDetail['permissions']>({ canMerge: false, canClose: false })
   const [conflicts, setConflicts] = useState<string[]>([])
+  const [preview, setPreview] = useState<MergePreview | null>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [discussionKey, setDiscussionKey] = useState(0)
   const [activeTab, setActiveTab] = useState<'conversation' | 'files'>('conversation')
@@ -59,6 +60,8 @@ export default function PRDetail() {
         setPr(data.pr)
         setDiff(data.diff)
         setPermissions(data.permissions)
+        setPreview(data.mergePreview)
+        setConflicts(data.mergePreview?.conflicts || [])
       } catch (err) {
         setError(getErrorMessage(err, 'Could not load pull request details.'))
       } finally {
@@ -79,6 +82,7 @@ export default function PRDetail() {
       setPr(data.pr)
       setDiff(data.diff)
       setPermissions(data.permissions)
+      setPreview(data.mergePreview)
     } catch (err) {
       setConflicts(getMergeConflicts(err))
       setMergeError(getErrorMessage(err, 'Merge failed. Please try again.'))
@@ -248,8 +252,9 @@ export default function PRDetail() {
                     {pr.status === 'merged' ? 'This pull request was merged'
                       : pr.status === 'closed' ? 'This pull request is closed'
                       : conflicts.length > 0 ? 'This branch has conflicts that must be resolved'
-                      : permissions.canMerge ? 'Ready to merge'
-                      : 'Waiting for a repository admin to merge'}
+                      : !preview ? 'Merge status unavailable'
+                      : permissions.canMerge ? 'This branch has no conflicts — ready to merge'
+                      : 'No conflicts — waiting for a repository admin to merge'}
                   </h3>
                   <p className={styles['merge-desc']}>
                     {pr.status === 'merged'
@@ -258,7 +263,9 @@ export default function PRDetail() {
                         ? 'Closed without merging.'
                         : conflicts.length > 0
                           ? 'Both branches changed these files since they diverged (or the target has unsaved edits to them). Update the source branch, commit, and try again.'
-                          : 'DevForge checks for conflicts when you merge: files changed on both branches since they diverged will be reported.'}
+                          : preview
+                            ? `Checked with a dry-run three-way merge against the merge base: ${preview.changes} file${preview.changes === 1 ? '' : 's'} will change on ${pr.target?.name || 'the target branch'}.`
+                            : 'Commit to the source branch to make it mergeable.'}
                   </p>
                   {conflicts.length > 0 && (
                     <ul className={styles['merge-desc']} style={{ margin: '0 0 12px', paddingLeft: '20px', fontFamily: 'JetBrains Mono, monospace' }}>
@@ -276,7 +283,7 @@ export default function PRDetail() {
                   {pr.status === 'open' && (
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                       {permissions.canMerge && (
-                        <button className={styles['btn-merge']} onClick={handleMerge} disabled={merging}>
+                        <button className={styles['btn-merge']} onClick={handleMerge} disabled={merging || conflicts.length > 0 || !preview}>
                           {merging ? <Loader2 size={18} className="animate-spin" /> : <GitMerge size={18} />}
                           {merging ? 'Merging…' : 'Merge pull request'}
                         </button>

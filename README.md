@@ -10,7 +10,7 @@ Built solo as a deep-dive into platform engineering: versioning models, row-leve
 
 ## What it does
 
-- **Repositories & versioning** — create repos, edit files in a Monaco editor, commit to branches, and create branches from any point. Every commit snapshots the full branch state.
+- **Repositories & versioning** — create repos, edit files in a Monaco editor, commit to branches, create branches from any point, and browse per-branch commit history with a diff for every commit.
 - **Pull requests** — diffs against the merge base (like GitHub), rendered line-by-line, with conversation threads, approve / request-changes reviews, close/reopen, and **real three-way merging** with conflict detection (owner/admin-gated).
 - **AI code review** — an "AI Review" button on any PR generates a structured review of the actual diff (summary / issues / suggestions). Also: explain-this-file in the editor. Falls back to mock responses without an API key.
 - **Sandboxed execution** — run Python/JavaScript/TypeScript/C++ files from the editor, on the branch you're viewing, with the branch's other files available for imports. Locally, code runs in hardened Docker containers (non-root, all capabilities dropped, no network, read-only root filesystem, 256MB RAM, 0.5 CPU, 64-process limit, capped output, 10s kill). In the cloud, execution goes through the [Piston](https://github.com/engineer-man/piston) API.
@@ -32,7 +32,7 @@ graph TD
 
 **Design decisions worth reading the code for:**
 
-- **Postgres as the versioning engine** (`migrations/009_security_hardening.sql`, `backend/src/utils/versioning.ts`): files are branch-scoped rows; commits form a parent graph (`parent_id` / `merge_parent_id`). `create_commit()` atomically snapshots the branch and advances its pointer; `merge_base()` walks the graph with a recursive CTE; `merge_pull_request()` performs a row-locked three-way merge in one transaction — taking one-sided changes (including deletions), reporting paths changed on both sides as conflicts, and refusing to overwrite uncommitted edits on the target. On long-running hosts, default-branch writes are also mirrored into an on-disk git repo via `simple-git`.
+- **Postgres as the versioning engine** (`migrations/009`–`010`, `backend/src/utils/versioning.ts`): files are branch-scoped rows; commit trees are **content-addressed** like git's object store — each distinct file content is stored once in `blobs` (SHA-256), and snapshots reference it by hash, so an unchanged file costs nothing per commit and diffs skip unchanged files by comparing hashes in SQL. Commits form a parent graph (`parent_id` / `merge_parent_id`). `create_commit()` atomically snapshots the branch and advances its pointer; `merge_base()` walks the graph with a recursive CTE; `merge_pull_request()` performs a row-locked three-way merge in one transaction — taking one-sided changes (including deletions), reporting paths changed on both sides as conflicts, and refusing to overwrite uncommitted edits on the target. The same function runs as a dry run to show whether a PR can merge before anyone clicks the button. On long-running hosts, default-branch writes are also mirrored into an on-disk git repo via `simple-git`.
 - **Two-layer authorization** (`backend/src/middleware/authorize.ts`, migration 009): one access model — owner, collaborator read/write/admin, public read — enforced by the API (404-on-private to prevent enumeration) and mirrored by Postgres RLS built on `SECURITY DEFINER` helpers (no policy recursion). Column-level grants keep emails and roles out of the public API, and triggers stop rows from referencing branches or commits of another repository.
 - **Zero-trust execution** (`backend/src/services/sandbox.ts`): ephemeral per-run containers with no network, no capabilities, no root and hard resource caps — with an automatic fallback to the Piston API where Docker isn't available.
 - **Serverless-aware runtime**: file logging, the git mirror, and the Docker engine automatically disable on read-only serverless filesystems; the same codebase runs on a laptop, a VM, or Vercel functions.
@@ -43,7 +43,7 @@ graph TD
 |---|---|
 | Frontend | React 19, TypeScript, Vite, Monaco Editor, Zustand, Framer Motion, Recharts |
 | Backend | Node.js, Express 5, TypeScript, Socket.IO, Winston |
-| Data & auth | Supabase (Postgres + Auth + RLS), 9 versioned SQL migrations |
+| Data & auth | Supabase (Postgres + Auth + RLS), 10 versioned SQL migrations |
 | Execution | Docker (dockerode) locally, Piston API in the cloud |
 | AI | OpenAI API (optional, mock-mode fallback) |
 | CI | GitHub Actions — dependency audit, type-check, tests (Vitest + Supertest + PGlite), lint, build |
@@ -66,7 +66,7 @@ cp frontend/.env.example frontend/.env
 #    → fill in VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 
 # 3. Apply the database schema in the Supabase SQL editor:
-#    supabase_schema.sql, then migrations/002 → 009 in order
+#    supabase_schema.sql, then migrations/002 → 010 in order
 
 # 4. Seed demo data (demo account, repos, an open PR, a gist)
 npm run seed

@@ -139,6 +139,14 @@ export default function AdminDashboard() {
         <StatCard label="Total Users" value={metrics?.users || 0} icon={<Users size={20} />} trend="Registered accounts" />
         <StatCard label="Repositories" value={metrics?.repos || 0} icon={<GitBranch size={20} />} trend="Across all users" />
         <StatCard label="Code Runs" value={metrics?.executions.length || 0} icon={<Terminal size={20} />} trend="Sandboxed executions" />
+        <StatCard
+          label="Snapshot Storage"
+          value={formatBytes(metrics?.storage?.stored_bytes || 0)}
+          icon={<Database size={20} />}
+          trend={metrics?.storage && metrics.storage.stored_bytes > 0
+            ? `${(metrics.storage.logical_bytes / metrics.storage.stored_bytes).toFixed(1)}× deduplicated (${formatBytes(metrics.storage.logical_bytes)} logical)`
+            : 'Content-addressed blobs'}
+        />
       </div>
 
       {/* Charts & Logs */}
@@ -247,6 +255,12 @@ function HealthPill({ label, status, icon }: { label: string, status: string, ic
       <div className={`${styles['health-status-dot']} ${isOnline ? styles['status-online'] : styles['status-offline']}`} />
     </div>
   )
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function StatCard({ label, value, trend, icon }: { label: string, value: number | string, trend: string, icon: ReactNode }) {

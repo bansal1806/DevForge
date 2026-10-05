@@ -95,9 +95,18 @@ export interface DiffEntry {
 
 export type DiffMap = Record<string, DiffEntry>
 
+export interface MergePreview {
+  mergeable: boolean
+  conflicts: string[]
+  /** Files the merge would change on the target branch */
+  changes: number
+}
+
 export interface PullRequestDetail {
   pr: PullRequest
   diff: DiffMap
+  /** Dry-run of the merge; null when not applicable (closed, no commits) */
+  mergePreview: MergePreview | null
   permissions: { canMerge: boolean, canClose: boolean }
 }
 
@@ -166,7 +175,16 @@ export interface Commit {
   author_id: string | null
   message: string
   created_at: string
+  parent_id?: string | null
+  merge_parent_id?: string | null
   author?: PublicUser | null
+  branch?: { id: string, name: string } | null
+}
+
+export interface CommitDetail {
+  commit: Commit
+  /** Changes introduced by the commit (vs. its first parent) */
+  diff: DiffMap
 }
 
 // Repositories
@@ -261,6 +279,11 @@ export async function getCommits(repoId: string, branchId?: string): Promise<Com
     params: branchId ? { branchId } : undefined
   })
   return data || []
+}
+
+export async function getCommitDetail(repoId: string, commitId: string): Promise<CommitDetail> {
+  const { data } = await apiClient.get<CommitDetail>(`/api/repos/${repoId}/commits/${commitId}`)
+  return data
 }
 
 export async function createBranch(repoId: string, name: string, fromBranchId?: string): Promise<Branch> {
@@ -501,10 +524,20 @@ export interface AuditLog {
   repository?: { name: string } | null
 }
 
+export interface StorageStats {
+  snapshot_rows: number
+  blob_count: number
+  /** Bytes actually stored (each distinct file content once) */
+  stored_bytes: number
+  /** Bytes a naive copy-every-file-per-commit design would store */
+  logical_bytes: number
+}
+
 export interface AdminMetrics {
   executions: ExecutionStat[]
   users: number
   repos: number
+  storage: StorageStats | null
 }
 
 export async function getSystemHealth(): Promise<SystemHealth> {

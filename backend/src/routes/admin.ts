@@ -67,10 +67,14 @@ router.get('/metrics', async (req: AuthenticatedRequest, res: Response) => {
 
     if (statsError) throw statsError;
 
+    // Content-addressed snapshot storage efficiency (migration 010)
+    const { data: storage } = await supabaseAdmin.rpc('snapshot_storage_stats');
+
     res.json({
       executions: stats || [],
       users: userCount,
       repos: repoCount,
+      storage: storage || null,
     });
   } catch (err: any) {
     logger.error(`Metrics fetch failed: ${err.message}`);

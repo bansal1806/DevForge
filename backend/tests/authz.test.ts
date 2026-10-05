@@ -175,6 +175,37 @@ describe('pull requests', () => {
   });
 });
 
+describe('history and merge preview', () => {
+  const commitId = '12121212-1212-4121-8121-121212121212';
+
+  beforeEach(() => {
+    mocks.db.seed('commits', [{ id: commitId, repo_id: ids.privateRepo, branch_id: ids.privMain, parent_id: null, message: 'init' }]);
+    mocks.db.rpcHandlers.diff_commits = () => [{ path: 'a.txt', status: 'added', content: 'hi', original_content: null }];
+    mocks.db.rpcHandlers.merge_pull_request = (args) =>
+      args.p_dry_run ? { mergeable: true, conflicts: [], changes: 1 } : { merged: true, commit_id: 'x' };
+  });
+
+  it('serves commit diffs to readers only', async () => {
+    expect((await request(app).get(`/api/repos/${ids.privateRepo}/commits/${commitId}`)).status).toBe(404);
+    expect((await request(app).get(`/api/repos/${ids.privateRepo}/commits/${commitId}`).set(as('stranger'))).status).toBe(404);
+
+    const res = await request(app).get(`/api/repos/${ids.privateRepo}/commits/${commitId}`).set(as('owner'));
+    expect(res.status).toBe(200);
+    expect(res.body.diff).toEqual({ 'a.txt': { status: 'added', content: 'hi', originalContent: null } });
+  });
+
+  it('does not serve a commit through another repository', async () => {
+    const res = await request(app).get(`/api/repos/${ids.publicRepo}/commits/${commitId}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('includes a dry-run merge preview on open PRs', async () => {
+    const res = await request(app).get(`/api/pull-requests/${ids.privatePr}`).set(as('owner'));
+    expect(res.status).toBe(200);
+    expect(res.body.mergePreview).toEqual({ mergeable: true, conflicts: [], changes: 1 });
+  });
+});
+
 describe('issues and gists', () => {
   it('lists issues of a public repo anonymously (regression: always 500 before)', async () => {
     const res = await request(app).get(`/api/issues/repos/${ids.publicRepo}`);

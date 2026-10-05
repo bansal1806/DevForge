@@ -19,7 +19,7 @@ export default function DiffViewer({ diff }: DiffViewerProps) {
   if (filePaths.length === 0) {
     return (
       <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border-glass)', borderRadius: '12px' }}>
-        No changes detected in this pull request.
+        No file changes.
       </div>
     )
   }

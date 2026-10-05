@@ -22,11 +22,12 @@ import {
   explainFile,
   runFile,
   getRepoMetrics,
+  getCommits,
   getErrorMessage
 } from '../../lib/api'
-import type { FileNode, Issue, PullRequest, ExecutionResult, ExecutionStat } from '../../lib/api'
-import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie 
+import type { FileNode, Issue, PullRequest, ExecutionResult, ExecutionStat, Commit } from '../../lib/api'
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie
 } from 'recharts'
 import {
   Code2,
@@ -52,7 +53,8 @@ import {
   Activity,
   LineChart as LineChartIcon,
   Clock,
-  PieChart as PieChartIcon
+  PieChart as PieChartIcon,
+  History
 } from 'lucide-react'
 import styles from './RepoView.module.css'
 import NewIssueModal from '../../components/Modals/NewIssueModal'
@@ -62,6 +64,7 @@ const tabDefs = [
   { icon: Code2, label: 'Code' },
   { icon: Bug, label: 'Issues' },
   { icon: GitPullRequest, label: 'Pull Requests' },
+  { icon: History, label: 'Commits' },
   { icon: LineChartIcon, label: 'Insights' },
   { icon: Settings, label: 'Settings' },
 ]
@@ -93,7 +96,7 @@ interface PresenceUser {
 
 export default function RepoView() {
   const { id } = useParams()
-  const { 
+  const {
     activeRepo, setActiveRepo,
     activeBranch, setActiveBranch,
     branches, setBranches,
@@ -110,12 +113,12 @@ export default function RepoView() {
   const [isIssueModalOpen, setIsIssueModalOpen] = useState(false)
   const [isPRModalOpen, setIsPRModalOpen] = useState(false)
   const [newRepoName, setNewRepoName] = useState('')
-  
+
   // AI State
   const [isAIExplaining, setIsAIExplaining] = useState(false)
   const [aiExplanation, setAIExplanation] = useState<string | null>(null)
   const [activeUsers, setActiveUsers] = useState<PresenceUser[]>([])
-  
+
   // Execution State
   const [isRunning, setIsRunning] = useState(false)
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null)
@@ -129,6 +132,9 @@ export default function RepoView() {
   const [commitMessage, setCommitMessage] = useState('')
   const [showCommitBox, setShowCommitBox] = useState(false)
   const [isStarring, setIsStarring] = useState(false)
+  const [repoCommits, setRepoCommits] = useState<Commit[]>([])
+  const [commitsLoading, setCommitsLoading] = useState(false)
+  const [commitsVersion, setCommitsVersion] = useState(0)
 
   const { user } = useAuth()
   const canWrite = activeRepo?.permission === 'write' || activeRepo?.permission === 'admin'
@@ -231,6 +237,7 @@ export default function RepoView() {
       await createCommit(id, activeBranch.id, commitMessage.trim())
       setCommitMessage('')
       setShowCommitBox(false)
+      setCommitsVersion((v) => v + 1)
       showNotification('Changes committed.')
     } catch (err) {
       showNotification(getErrorMessage(err, 'Error: failed to commit changes.'))
@@ -331,7 +338,7 @@ export default function RepoView() {
   // 1. Fetch Repo Initial Data
   useEffect(() => {
     if (!id) return
-    
+
     async function init() {
       setLoading(true)
       try {
@@ -372,7 +379,7 @@ export default function RepoView() {
       }
     }
     init()
-    
+
     return () => {
       socket.emit('leave-room', id)
       socket.disconnect()
@@ -406,6 +413,18 @@ export default function RepoView() {
     }).catch((err) => console.error('Failed to load files:', err))
     return () => { cancelled = true }
   }, [id, activeBranchId, setFiles, setActiveFile])
+
+  // Commit history for the active branch, loaded when the tab is opened
+  useEffect(() => {
+    if (activeTab !== 'Commits' || !id || !activeBranchId) return
+    let cancelled = false
+    setCommitsLoading(true)
+    getCommits(id, activeBranchId)
+      .then((data) => { if (!cancelled) setRepoCommits(data) })
+      .catch((err) => console.error('Failed to load commits:', err))
+      .finally(() => { if (!cancelled) setCommitsLoading(false) })
+    return () => { cancelled = true }
+  }, [activeTab, id, activeBranchId, commitsVersion])
 
   // 3. Socket listeners
   useEffect(() => {
@@ -511,7 +530,7 @@ export default function RepoView() {
 
       return (
         <div key={node.path}>
-          <motion.div 
+          <motion.div
             className={`${styles['file-tree-item']} ${isActive ? styles['file-tree-item--active'] : ''}`}
             style={{ paddingLeft: `${depth * 12 + 12}px`, cursor: 'pointer' }}
             onClick={() => {
@@ -571,14 +590,14 @@ export default function RepoView() {
           <div className={styles['repo-view-breadcrumb']}>
             <Link to="/dashboard">Developer</Link> / <span style={{ color: 'var(--accent-neon)', fontWeight: 600 }}>{activeRepo?.name || id}</span>
           </div>
-          
+
           <div className={styles['presence-indicator']}>
             <Users size={16} />
             <div className={styles['presence-stack']}>
               {activeUsers.map(user => (
-                <div 
-                  key={user.id} 
-                  className={styles['presence-avatar']} 
+                <div
+                  key={user.id}
+                  className={styles['presence-avatar']}
                   style={{ backgroundColor: user.color }}
                   title={user.name}
                 >
@@ -636,7 +655,7 @@ export default function RepoView() {
           {/* Branch Bar */}
           <div className={styles['branch-bar']}>
             <div style={{ position: 'relative' }} ref={branchRef}>
-              <button 
+              <button
                 className={styles['branch-selector']}
                 onClick={() => setIsBranchOpen(!isBranchOpen)}
               >
@@ -644,11 +663,11 @@ export default function RepoView() {
                 {activeBranch?.name || 'main'}
                 <ChevronDown size={14} />
               </button>
-              
+
               <AnimatePresence>
                 {isBranchOpen && (
-                  <motion.div 
-                    className="dropdown-menu" 
+                  <motion.div
+                    className="dropdown-menu"
                     style={{ left: 0, right: 'auto', transformOrigin: 'top left', minWidth: '180px' }}
                     initial={{ opacity: 0, scale: 0.95, y: -5 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -657,9 +676,9 @@ export default function RepoView() {
                     <div style={{ padding: '8px 12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Switch branches</div>
                     <div className="dropdown-divider" />
                     {branches.map((b) => (
-                      <button 
-                        key={b.id} 
-                        className={`dropdown-item ${activeBranch?.id === b.id ? 'active' : ''}`} 
+                      <button
+                        key={b.id}
+                        className={`dropdown-item ${activeBranch?.id === b.id ? 'active' : ''}`}
                         onClick={() => {
                           if (b.id !== activeBranch?.id && confirmDiscard()) setActiveBranch(b)
                           setIsBranchOpen(false)
@@ -728,9 +747,9 @@ export default function RepoView() {
           {/* Notification Toast */}
           <AnimatePresence>
             {notification && (
-              <motion.div 
-                initial={{ opacity: 0, y: 50 }} 
-                animate={{ opacity: 1, y: 0 }} 
+              <motion.div
+                initial={{ opacity: 0, y: 50 }}
+                animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 50 }}
                 className={styles['notification-toast']}
               >
@@ -778,7 +797,7 @@ export default function RepoView() {
                 {/* Monaco Editor Overlay/Pane */}
                 <AnimatePresence mode="wait">
                   {activeFile && (
-                    <motion.div 
+                    <motion.div
                       className={styles['editor-pane']}
                       key={activeFile.id}
                       initial={{ opacity: 0, x: 20 }}
@@ -815,8 +834,8 @@ export default function RepoView() {
                             {isAIExplaining ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
                             AI Explain
                           </motion.button>
-                          
-                          <motion.button 
+
+                          <motion.button
                              className={`${styles['ai-action-btn']} ${styles['run-btn']}`}
                              onClick={handleRun}
                              disabled={isRunning}
@@ -862,7 +881,7 @@ export default function RepoView() {
                         {/* Execution Terminal */}
                         <AnimatePresence>
                           {showTerminal && (
-                            <motion.div 
+                            <motion.div
                               className={styles['terminal-panel']}
                               initial={{ height: 0 }}
                               animate={{ height: 250 }}
@@ -904,7 +923,7 @@ export default function RepoView() {
                         {/* AI Explanation Drawer */}
                         <AnimatePresence>
                           {aiExplanation && (
-                            <motion.div 
+                            <motion.div
                               className={styles['ai-explanation-drawer']}
                               initial={{ y: '100%' }}
                               animate={{ y: 0 }}
@@ -932,7 +951,7 @@ export default function RepoView() {
             <div className={styles['tab-content-list']}>
               <div className={styles['tab-list-header']}>
                 <h3 className={styles['tab-list-title']}>Issues</h3>
-                <motion.button 
+                <motion.button
                   className={styles['new-item-btn']}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
@@ -952,7 +971,7 @@ export default function RepoView() {
                       <div className={styles['tab-list-item-content']}>
                         <div className={styles['tab-list-item-title']}>{issue.title} <span style={{ color: 'var(--text-muted)' }}>#{issue.id.slice(0, 8)}</span></div>
                         <div className={styles['tab-list-item-meta']}>
-                          opened {new Date(issue.created_at).toLocaleDateString()} by 
+                          opened {new Date(issue.created_at).toLocaleDateString()} by
                           <span className={styles['author-link']}>{issue.author?.name || 'Developer'}</span>
                         </div>
                       </div>
@@ -965,15 +984,17 @@ export default function RepoView() {
             <div className={styles['tab-content-list']}>
               <div className={styles['tab-list-header']}>
                 <h3 className={styles['tab-list-title']}>Pull Requests</h3>
-                <motion.button 
-                  className={styles['new-item-btn']}
-                  style={{ background: 'linear-gradient(135deg, #10b981 0%, #3b82f6 100%)' }}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setIsPRModalOpen(true)}
-                >
-                  <Plus size={16} /> New PR
-                </motion.button>
+                {canWrite && (
+                  <motion.button
+                    className={styles['new-item-btn']}
+                    style={{ background: 'linear-gradient(135deg, #10b981 0%, #3b82f6 100%)' }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setIsPRModalOpen(true)}
+                  >
+                    <Plus size={16} /> New PR
+                  </motion.button>
+                )}
               </div>
 
               {repoPRs.length === 0 ? (
@@ -986,8 +1007,38 @@ export default function RepoView() {
                       <div className={styles['tab-list-item-content']}>
                         <div className={styles['tab-list-item-title']}>{pr.title} <span style={{ color: 'var(--text-muted)' }}>#{pr.id.slice(0, 8)}</span></div>
                         <div className={styles['tab-list-item-meta']}>
-                          opened {new Date(pr.created_at).toLocaleDateString()} by 
+                          opened {new Date(pr.created_at).toLocaleDateString()} by
                           <span className={styles['author-link']}>{pr.author?.name || 'Developer'}</span>
+                        </div>
+                      </div>
+                    </Link>
+                  </motion.div>
+                ))
+              )}
+            </div>
+          ) : activeTab === 'Commits' ? (
+            <div className={styles['tab-content-list']}>
+              <div className={styles['tab-list-header']}>
+                <h3 className={styles['tab-list-title']}>
+                  Commits on <span style={{ color: 'var(--accent-neon)' }}>{activeBranch?.name || 'main'}</span>
+                </h3>
+              </div>
+
+              {commitsLoading && repoCommits.length === 0 ? (
+                <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading history...</div>
+              ) : repoCommits.length === 0 ? (
+                <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>No commits on this branch yet.</div>
+              ) : (
+                repoCommits.map((commit, i) => (
+                  <motion.div key={commit.id} custom={i} variants={itemVariants} initial="hidden" animate="visible">
+                    <Link to={`/repo/${id}/commits/${commit.id}`} className={styles['tab-list-item']}>
+                      <GitCommitHorizontal size={18} style={{ color: commit.merge_parent_id ? 'var(--accent-purple)' : 'var(--accent-neon)' }} />
+                      <div className={styles['tab-list-item-content']}>
+                        <div className={styles['tab-list-item-title']}>
+                          {commit.message} <span style={{ color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>{commit.id.slice(0, 7)}</span>
+                        </div>
+                        <div className={styles['tab-list-item-meta']}>
+                          {commit.author?.name || 'Deleted user'} committed {new Date(commit.created_at).toLocaleString()}
                         </div>
                       </div>
                     </Link>
@@ -1000,7 +1051,7 @@ export default function RepoView() {
               <div className={styles['tab-list-header']}>
                 <h3 className={styles['tab-list-title']}>Repository Insights</h3>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  <Activity size={14} style={{ marginRight: 6 }} /> 
+                  <Activity size={14} style={{ marginRight: 6 }} />
                   {repoMetrics.length} total executions
                 </div>
               </div>
@@ -1014,14 +1065,14 @@ export default function RepoView() {
                      <ResponsiveContainer>
                        <AreaChart data={repoMetrics.slice(-10)}>
                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                         <XAxis 
-                           dataKey="created_at" 
-                           stroke="var(--text-muted)" 
-                           tick={{ fontSize: 10 }} 
+                         <XAxis
+                           dataKey="created_at"
+                           stroke="var(--text-muted)"
+                           tick={{ fontSize: 10 }}
                            tickFormatter={(str) => new Date(str).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                          />
                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 10 }} />
-                         <Tooltip 
+                         <Tooltip
                             contentStyle={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
                             itemStyle={{ fontSize: '10px' }}
                          />
@@ -1071,7 +1122,7 @@ export default function RepoView() {
                   <div key={i} className={styles['audit-list-item']}>
                     <div className={styles['audit-list-dot']} style={{ backgroundColor: m.status === 'success' ? '#10b981' : '#ef4444' }} />
                     <div style={{ flex: 1 }}>
-                       Run <strong>{m.language}</strong> 
+                       Run <strong>{m.language}</strong>
                        <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>{m.duration}ms</span>
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -1083,7 +1134,7 @@ export default function RepoView() {
               </div>
             </div>
           ) : activeTab === 'Settings' ? (
-            <motion.div 
+            <motion.div
               className={styles['settings-pane']}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1092,8 +1143,8 @@ export default function RepoView() {
                 <div className={styles['settings-card-title']}>General</div>
                 <div className={styles['settings-form-group']}>
                   <label>Repository Name</label>
-                  <input 
-                    className={styles['settings-input']} 
+                  <input
+                    className={styles['settings-input']}
                     value={newRepoName}
                     onChange={(e) => setNewRepoName(e.target.value)}
                   />
