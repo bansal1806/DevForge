@@ -33,54 +33,61 @@ export default function DiffViewer({ diff }: DiffViewerProps) {
   )
 }
 
+interface DiffLine {
+  type: 'added' | 'deleted' | 'normal'
+  content: string
+  /** Line number in the new file (or the old one for deletions) */
+  ln: number
+}
+
+// Split file content into lines without a phantom empty line after a final newline
+function splitLines(text: string) {
+  const lines = text.split('\n')
+  if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
+  return lines
+}
+
 function FileDiff({ path, file }: { path: string, file: DiffFile }) {
-  const lines = useMemo(() => {
+  const lines = useMemo<DiffLine[]>(() => {
     const { status, content, originalContent } = file
-    
+
     if (status === 'added') {
-      return (content || '').split('\n').map((line, i) => ({
-        type: 'added' as const,
-        content: line,
-        ln: i + 1
-      }))
+      return splitLines(content || '').map((line, i) => ({ type: 'added', content: line, ln: i + 1 }))
     }
-    
+
     if (status === 'deleted') {
-      return (originalContent || '').split('\n').map((line, i) => ({
-        type: 'deleted' as const,
-        content: line,
-        ln: i + 1
-      }))
+      return splitLines(originalContent || '').map((line, i) => ({ type: 'deleted', content: line, ln: i + 1 }))
     }
-    
+
     if (status === 'modified') {
       const changes = Diff.diffLines(originalContent || '', content || '')
-      const result: { type: 'added' | 'deleted' | 'normal', content: string, lnSource?: number, lnTarget?: number }[] = []
-      
+      const result: DiffLine[] = []
+
       let lnS = 1
       let lnT = 1
-      
+
       changes.forEach((part) => {
         const partLines = part.value.split('\n')
         // Remove empty line at the end if it exists from split
         if (partLines[partLines.length - 1] === '' && part.value.endsWith('\n')) {
           partLines.pop()
         }
-        
+
         partLines.forEach((line) => {
           if (part.added) {
-            result.push({ type: 'added', content: line, lnTarget: lnT++ })
+            result.push({ type: 'added', content: line, ln: lnT++ })
           } else if (part.removed) {
-            result.push({ type: 'deleted', content: line, lnSource: lnS++ })
+            result.push({ type: 'deleted', content: line, ln: lnS++ })
           } else {
-            result.push({ type: 'normal', content: line, lnSource: lnS++, lnTarget: lnT++ })
+            lnS++
+            result.push({ type: 'normal', content: line, ln: lnT++ })
           }
         })
       })
-      
+
       return result
     }
-    
+
     return []
   }, [file])
 
@@ -102,15 +109,15 @@ function FileDiff({ path, file }: { path: string, file: DiffFile }) {
           <span className={styles['deletion-count']}>-{stats.deletions}</span>
         </div>
       </div>
-      
+
       <div className={styles['diff-code']}>
         {lines.map((line, i) => (
-          <div 
-            key={i} 
+          <div
+            key={i}
             className={`${styles['diff-line']} ${line.type === 'added' ? styles['line--added'] : line.type === 'deleted' ? styles['line--deleted'] : ''}`}
           >
             <div className={styles['line-number']}>
-              {(line as any).lnTarget || (line as any).lnSource || (line as any).ln || ''}
+              {line.ln}
             </div>
             <div className={styles['line-content']}>
               <span className={styles['line-prefix']}>

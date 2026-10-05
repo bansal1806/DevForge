@@ -13,10 +13,20 @@ import {
   CheckCircle2,
   Sparkles,
   Loader2,
-  X
+  X,
+  AlertTriangle,
+  XCircle
 } from 'lucide-react'
-import type { PullRequest } from '../../lib/api'
-import { getPullRequestById, mergePullRequest, reviewPullRequest, postPRComment } from '../../lib/api'
+import type { PullRequest, DiffMap, PullRequestDetail } from '../../lib/api'
+import {
+  getPullRequestById,
+  mergePullRequest,
+  reviewPullRequest,
+  postPRComment,
+  updatePullRequest,
+  getErrorMessage,
+  getMergeConflicts,
+} from '../../lib/api'
 import DiffViewer from '../../components/DiffViewer/DiffViewer'
 import CommentSection from '../../components/Social/CommentSection'
 import styles from './PRDetail.module.css'
@@ -26,7 +36,11 @@ import ReactMarkdown from 'react-markdown'
 export default function PRDetail() {
   const { repoId, prId } = useParams<{ repoId: string; prId: string }>()
   const [pr, setPr] = useState<PullRequest | null>(null)
-  const [diff, setDiff] = useState<any>(null)
+  const [diff, setDiff] = useState<DiffMap | null>(null)
+  const [permissions, setPermissions] = useState<PullRequestDetail['permissions']>({ canMerge: false, canClose: false })
+  const [conflicts, setConflicts] = useState<string[]>([])
+  const [updatingStatus, setUpdatingStatus] = useState(false)
+  const [discussionKey, setDiscussionKey] = useState(0)
   const [activeTab, setActiveTab] = useState<'conversation' | 'files'>('conversation')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -44,9 +58,9 @@ export default function PRDetail() {
         const data = await getPullRequestById(prId)
         setPr(data.pr)
         setDiff(data.diff)
+        setPermissions(data.permissions)
       } catch (err) {
-        console.error('Error fetching PR:', err)
-        setError('Could not load pull request details.')
+        setError(getErrorMessage(err, 'Could not load pull request details.'))
       } finally {
         setLoading(false)
       }
@@ -58,13 +72,16 @@ export default function PRDetail() {
     if (!prId || merging) return
     setMerging(true)
     setMergeError(null)
+    setConflicts([])
     try {
       await mergePullRequest(prId)
       const data = await getPullRequestById(prId)
       setPr(data.pr)
       setDiff(data.diff)
-    } catch (err: any) {
-      setMergeError(err.response?.data?.error || 'Merge failed. Please try again.')
+      setPermissions(data.permissions)
+    } catch (err) {
+      setConflicts(getMergeConflicts(err))
+      setMergeError(getErrorMessage(err, 'Merge failed. Please try again.'))
     } finally {
       setMerging(false)
     }
@@ -76,8 +93,8 @@ export default function PRDetail() {
     try {
       const { review } = await reviewPullRequest(prId)
       setAiReview(review)
-    } catch (err: any) {
-      setAiReview(err.response?.data?.error || 'AI review failed. Please try again.')
+    } catch (err) {
+      setAiReview(getErrorMessage(err, 'AI review failed. Please try again.'))
     } finally {
       setReviewing(false)
     }
@@ -89,11 +106,26 @@ export default function PRDetail() {
     try {
       await postPRComment(prId, `## 🤖 AI Review\n\n${aiReview}`)
       setAiReview(null)
-      window.location.reload()
+      setDiscussionKey((k) => k + 1) // refresh the thread in place
     } catch (err) {
-      console.error('Failed to post AI review:', err)
+      setMergeError(getErrorMessage(err, 'Failed to post the AI review.'))
     } finally {
       setPostingReview(false)
+    }
+  }
+
+  const handleStatusChange = async (status: 'open' | 'closed') => {
+    if (!prId || !pr || updatingStatus) return
+    setUpdatingStatus(true)
+    try {
+      const updated = await updatePullRequest(prId, { status })
+      setPr({ ...pr, status: updated.status })
+      setConflicts([])
+      setMergeError(null)
+    } catch (err) {
+      setMergeError(getErrorMessage(err, 'Failed to update the pull request.'))
+    } finally {
+      setUpdatingStatus(false)
     }
   }
 
@@ -124,7 +156,7 @@ export default function PRDetail() {
   const fileCount = diff ? Object.keys(diff).length : 0
 
   return (
-    <motion.div 
+    <motion.div
       className={styles['pr-container']}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
@@ -140,29 +172,29 @@ export default function PRDetail() {
         <h1 className={issueStyles['issue-title']}>
           {pr.title} <span className={styles['pr-id']}>#{pr.id.slice(0, 8)}</span>
         </h1>
-        
+
         <div className={styles['pr-meta']}>
           <div className={`${issueStyles['status-badge']} ${pr.status === 'open' ? issueStyles['status-badge--open'] : issueStyles['status-badge--closed']}`}>
-            <GitPullRequest size={16} />
+            {pr.status === 'merged' ? <GitMerge size={16} /> : <GitPullRequest size={16} />}
             {pr.status}
           </div>
           <div className={styles['branch-container']}>
-            <span className={styles['branch-name']}>{(pr as any).source?.name}</span>
+            <span className={styles['branch-name']}>{pr.source?.name || 'deleted branch'}</span>
             <ArrowRight size={14} style={{ color: 'var(--text-muted)' }} />
-            <span className={styles['branch-name']}>{(pr as any).target?.name}</span>
+            <span className={styles['branch-name']}>{pr.target?.name || 'deleted branch'}</span>
           </div>
         </div>
       </header>
 
       {/* Tabs */}
       <div className={styles['pr-tabs']}>
-        <button 
+        <button
           className={`${styles['tab-btn']} ${activeTab === 'conversation' ? styles['tab-btn--active'] : ''}`}
           onClick={() => setActiveTab('conversation')}
         >
           <MessageSquare size={16} /> Conversation
         </button>
-        <button 
+        <button
           className={`${styles['tab-btn']} ${activeTab === 'files' ? styles['tab-btn--active'] : ''}`}
           onClick={() => setActiveTab('files')}
         >
@@ -173,7 +205,7 @@ export default function PRDetail() {
       {/* Tab Content */}
       <AnimatePresence mode="wait">
         {activeTab === 'conversation' ? (
-          <motion.div 
+          <motion.div
             key="conversation"
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
@@ -184,7 +216,7 @@ export default function PRDetail() {
               <div className={issueStyles['description-box']}>
                 <div className={issueStyles['description-header']}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
-                    <User size={14} /> {pr.author?.name || 'Developer'} commented
+                    <User size={14} /> {pr.author?.name || 'Deleted user'} opened this pull request
                   </div>
                 </div>
                 <div className={issueStyles['description-body']}>
@@ -194,32 +226,61 @@ export default function PRDetail() {
 
               {/* Activity Section */}
               <div style={{ marginTop: '32px' }}>
-                <CommentSection type="pr" id={prId!} />
+                <CommentSection
+                  key={discussionKey}
+                  type="pr"
+                  id={prId!}
+                  prAuthorId={pr.author_id}
+                  allowReviews={pr.status === 'open'}
+                />
               </div>
 
               {/* Merge Section */}
               <div className={styles['merge-box']}>
-                <div className={`${styles['merge-icon']} ${pr.status === 'open' ? styles['merge-icon--open'] : styles['merge-icon--merged']}`}>
-                  {pr.status === 'open' ? <CheckCircle2 size={24} /> : <GitMerge size={24} />}
+                <div className={`${styles['merge-icon']} ${pr.status === 'open' && conflicts.length === 0 ? styles['merge-icon--open'] : styles['merge-icon--merged']}`}>
+                  {pr.status === 'merged' ? <GitMerge size={24} />
+                    : pr.status === 'closed' ? <XCircle size={24} />
+                    : conflicts.length > 0 ? <AlertTriangle size={24} />
+                    : <CheckCircle2 size={24} />}
                 </div>
                 <div className={styles['merge-content']}>
                   <h3 className={styles['merge-title']}>
-                    {pr.status === 'open' ? 'This branch has no conflicts' : 'This pull request was merged'}
+                    {pr.status === 'merged' ? 'This pull request was merged'
+                      : pr.status === 'closed' ? 'This pull request is closed'
+                      : conflicts.length > 0 ? 'This branch has conflicts that must be resolved'
+                      : permissions.canMerge ? 'Ready to merge'
+                      : 'Waiting for a repository admin to merge'}
                   </h3>
                   <p className={styles['merge-desc']}>
-                    {pr.status === 'open' 
-                      ? 'No conflicts with the base branch. You can safely merge these changes.' 
-                      : `Successfully merged by ${pr.author?.name || 'Developer'} on ${new Date(pr.merged_at || '').toLocaleDateString()}.`}
+                    {pr.status === 'merged'
+                      ? `Merged on ${new Date(pr.merged_at || pr.updated_at).toLocaleDateString()}.`
+                      : pr.status === 'closed'
+                        ? 'Closed without merging.'
+                        : conflicts.length > 0
+                          ? 'Both branches changed these files since they diverged (or the target has unsaved edits to them). Update the source branch, commit, and try again.'
+                          : 'DevForge checks for conflicts when you merge: files changed on both branches since they diverged will be reported.'}
                   </p>
-                  {mergeError && (
+                  {conflicts.length > 0 && (
+                    <ul className={styles['merge-desc']} style={{ margin: '0 0 12px', paddingLeft: '20px', fontFamily: 'JetBrains Mono, monospace' }}>
+                      {conflicts.map((path) => <li key={path}>{path}</li>)}
+                    </ul>
+                  )}
+                  {mergeError && conflicts.length === 0 && (
                     <p className={styles['merge-desc']} style={{ color: '#ef4444' }}>{mergeError}</p>
+                  )}
+                  {pr.status === 'closed' && permissions.canClose && (
+                    <button className="btn-ghost" onClick={() => handleStatusChange('open')} disabled={updatingStatus}>
+                      Reopen pull request
+                    </button>
                   )}
                   {pr.status === 'open' && (
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                      <button className={styles['btn-merge']} onClick={handleMerge} disabled={merging}>
-                        {merging ? <Loader2 size={18} className="animate-spin" /> : <GitMerge size={18} />}
-                        {merging ? 'Merging…' : 'Merge pull request'}
-                      </button>
+                      {permissions.canMerge && (
+                        <button className={styles['btn-merge']} onClick={handleMerge} disabled={merging}>
+                          {merging ? <Loader2 size={18} className="animate-spin" /> : <GitMerge size={18} />}
+                          {merging ? 'Merging…' : 'Merge pull request'}
+                        </button>
+                      )}
                       <button
                         className={styles['btn-merge']}
                         style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)' }}
@@ -229,6 +290,11 @@ export default function PRDetail() {
                         {reviewing ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
                         {reviewing ? 'Reviewing…' : 'AI Review'}
                       </button>
+                      {permissions.canClose && (
+                        <button className="btn-ghost" onClick={() => handleStatusChange('closed')} disabled={updatingStatus}>
+                          Close pull request
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -276,7 +342,7 @@ export default function PRDetail() {
                   No reviewers assigned
                 </div>
               </div>
-              
+
               <div className={issueStyles['sidebar-section']}>
                 <h4 className={issueStyles['sidebar-title']}>Details</h4>
                 <div className={issueStyles['sidebar-content']} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -289,13 +355,13 @@ export default function PRDetail() {
             </aside>
           </motion.div>
         ) : (
-          <motion.div 
+          <motion.div
             key="files"
             initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -10 }}
           >
-            <DiffViewer diff={diff} />
+            <DiffViewer diff={diff || {}} />
           </motion.div>
         )}
       </AnimatePresence>

@@ -142,7 +142,7 @@ export default function GistDetail() {
             <div className={styles['editor-container']}>
               <Editor
                 height="100%"
-                language={file.language}
+                language={file.language || undefined}
                 theme="vs-dark"
                 value={file.content}
                 options={{
