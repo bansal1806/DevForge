@@ -15,6 +15,8 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
 })
 
+// The hook lives beside its provider on purpose; fast refresh falls back to a full reload for this file.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   return useContext(AuthContext)
 }

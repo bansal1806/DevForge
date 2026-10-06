@@ -61,15 +61,15 @@ export default function Profile() {
         <aside className={styles['profile-sidebar']}>
           <div className={styles['avatar-large']}>
             {profile.avatar_url ? (
-              <img src={profile.avatar_url} alt={profile.name} />
+              <img src={profile.avatar_url} alt={profile.name || "Avatar"} />
             ) : (
               <User size={80} className={styles['avatar-placeholder']} />
             )}
           </div>
           
           <div className={styles['profile-info']}>
-            <h1 className={styles['user-name']}>{profile.name}</h1>
-            <div className={styles['user-handle']}>@{profile.name.toLowerCase().replace(/\s/g, '_')}</div>
+            <h1 className={styles["user-name"]}>{profile.name || "Developer"}</h1>
+            <div className={styles['user-handle']}>@{(profile.name || 'developer').toLowerCase().replace(/\s/g, '_')}</div>
             <p className={styles['user-bio']}>
               {profile.bio || 'This developer has not added a bio yet.'}
             </p>

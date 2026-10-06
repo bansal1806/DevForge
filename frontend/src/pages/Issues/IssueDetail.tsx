@@ -1,19 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { 
-  CircleDot, 
-  CheckCircle2, 
-  Clock, 
-  User, 
-  MessageSquare, 
+import {
+  CircleDot,
+  CheckCircle2,
+  Clock,
+  User,
   ChevronLeft,
   Share2,
-  MoreVertical,
   Calendar
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
-import { getIssueById, type Issue } from '../../lib/api'
+import { getIssueById, updateIssue, getErrorMessage, type Issue } from '../../lib/api'
 import CommentSection from '../../components/Social/CommentSection'
 import styles from './IssueDetail.module.css'
 
@@ -22,6 +20,33 @@ export default function IssueDetail() {
   const [issue, setIssue] = useState<Issue | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
+  const [updating, setUpdating] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const handleToggleStatus = async () => {
+    if (!issue || updating) return
+    setUpdating(true)
+    setStatusError(null)
+    try {
+      const updated = await updateIssue(issue.id, { status: issue.status === 'open' ? 'closed' : 'open' })
+      setIssue({ ...issue, ...updated })
+    } catch (err) {
+      setStatusError(getErrorMessage(err, 'Failed to update the issue.'))
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard unavailable (insecure context) — nothing to do
+    }
+  }
 
   useEffect(() => {
     async function fetchIssue() {
@@ -31,8 +56,7 @@ export default function IssueDetail() {
         const data = await getIssueById(issueId)
         setIssue(data)
       } catch (err) {
-        console.error('Error fetching issue:', err)
-        setError('Could not load issue details.')
+        setError(getErrorMessage(err, 'Could not load issue details.'))
       } finally {
         setLoading(false)
       }
@@ -65,7 +89,7 @@ export default function IssueDetail() {
   }
 
   return (
-    <motion.div 
+    <motion.div
       className={styles['issue-container']}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
@@ -84,9 +108,15 @@ export default function IssueDetail() {
           <h1 className={styles['issue-title']}>
             {issue.title} <span className={styles['issue-number']}>#{issue.id.slice(0, 8)}</span>
           </h1>
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <button className="btn-ghost" style={{ padding: '8px' }}><Share2 size={18} /></button>
-            <button className="btn-ghost" style={{ padding: '8px' }}><MoreVertical size={18} /></button>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            {issue.permissions?.canEdit && (
+              <button className="btn-ghost" onClick={handleToggleStatus} disabled={updating}>
+                {issue.status === 'open' ? 'Close issue' : 'Reopen issue'}
+              </button>
+            )}
+            <button className="btn-ghost" style={{ padding: '8px' }} onClick={handleShare} title="Copy link">
+              {copied ? 'Copied!' : <Share2 size={18} />}
+            </button>
           </div>
         </div>
 
@@ -96,11 +126,9 @@ export default function IssueDetail() {
             {issue.status}
           </div>
           <div className={styles['meta-text']}>
-            <Link to={`/profile/${issue.author_id}`} className={styles['author-link']}>{issue.author?.name || 'Developer'}</Link> opened this issue {new Date(issue.created_at).toLocaleDateString()}
+            <Link to={`/profile/${issue.author_id}`} className={styles['author-link']}>{issue.author?.name || 'Deleted user'}</Link> opened this issue {new Date(issue.created_at).toLocaleDateString()}
           </div>
-          <div className={styles['meta-text']} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            • <MessageSquare size={14} /> 0 comments
-          </div>
+          {statusError && <div className={styles['meta-text']} style={{ color: '#ef4444' }}>{statusError}</div>}
         </div>
       </header>
 
@@ -110,7 +138,7 @@ export default function IssueDetail() {
           <div className={styles['description-box']}>
             <div className={styles['description-header']}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
-                <User size={14} /> {issue.author?.name || 'Developer'} commented
+                <User size={14} /> {issue.author?.name || 'Deleted user'} commented
               </div>
               <div className={styles['meta-text']}>
                 {new Date(issue.created_at).toLocaleTimeString() }

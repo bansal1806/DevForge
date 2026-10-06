@@ -1,46 +1,52 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { Code2, Globe, Lock, Plus } from 'lucide-react'
 import { useStore } from '../../store/useStore'
-import { getGists } from '../../lib/api'
+import { getGists, getMyGists } from '../../lib/api'
 import styles from '../shared/SharedPages.module.css'
 import NewGistModal from '../../components/Modals/NewGistModal'
 
 const itemVariants = {
   hidden: { opacity: 0, y: 15 },
-  visible: (i: number) => ({ 
-    opacity: 1, 
-    y: 0, 
-    transition: { 
-      delay: i * 0.05, 
-      duration: 0.4, 
-      ease: [0.22, 1, 0.36, 1] as [number, number, number, number] 
-    } 
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: {
+      delay: i * 0.05,
+      duration: 0.4,
+      ease: [0.22, 1, 0.36, 1] as [number, number, number, number]
+    }
   }),
 }
 
 export default function Gists() {
   const { gists, setGists, loading, setLoading, setError } = useStore()
   const [isModalOpen, setIsModalOpen] = useState(false)
+  // "mine" includes your private gists, which never appear in the public feed
+  const [scope, setScope] = useState<'public' | 'mine'>('public')
 
-  useEffect(() => {
+  const loadGists = useCallback(() => {
     setLoading(true)
-    getGists()
+    return (scope === 'mine' ? getMyGists() : getGists())
       .then(setGists)
       .catch((err) => {
         console.error(err)
         setError('Failed to load gists')
       })
       .finally(() => setLoading(false))
-  }, [setGists, setLoading, setError])
+  }, [scope, setGists, setLoading, setError])
+
+  useEffect(() => {
+    loadGists()
+  }, [loadGists])
 
   return (
     <div className={styles['page-shell']}>
-      <motion.div 
-        className={styles['page-header']} 
-        initial={{ opacity: 0, y: 20 }} 
-        animate={{ opacity: 1, y: 0 }} 
+      <motion.div
+        className={styles['page-header']}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
         <div className={styles['page-header-main']}>
@@ -48,21 +54,37 @@ export default function Gists() {
             <h1 className={styles['page-title']}><Code2 size={24} /> Gists</h1>
             <p className={styles['page-subtitle']}>Share code snippets and useful patterns.</p>
           </div>
-          <motion.button 
-            className={styles['action-btn']}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => setIsModalOpen(true)}
-          >
-            <Plus size={16} /> New Gist
-          </motion.button>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <div role="tablist" aria-label="Gist scope" style={{ display: 'flex', gap: '4px' }}>
+              {(['public', 'mine'] as const).map((s) => (
+                <button
+                  key={s}
+                  role="tab"
+                  aria-selected={scope === s}
+                  className="btn-ghost"
+                  style={{ opacity: scope === s ? 1 : 0.6 }}
+                  onClick={() => setScope(s)}
+                >
+                  {s === 'public' ? 'Public' : 'My gists'}
+                </button>
+              ))}
+            </div>
+            <motion.button
+              className={styles['action-btn']}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setIsModalOpen(true)}
+            >
+              <Plus size={16} /> New Gist
+            </motion.button>
+          </div>
         </div>
       </motion.div>
 
-      <NewGistModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        onSuccess={() => getGists().then(setGists)} 
+      <NewGistModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSuccess={() => { loadGists() }}
       />
 
       {loading ? (
@@ -80,7 +102,7 @@ export default function Gists() {
                 <div className={styles['list-item-content']}>
                   <div className={styles['list-item-title']}>
                     {gist.is_public ? <Globe size={14} /> : <Lock size={14} />}
-                    {gist.title}
+                    {gist.title || 'Untitled gist'}
                   </div>
                   <div className={styles['list-item-desc']}>{gist.description || 'No description provided.'}</div>
                   <div className={styles['list-item-meta']}>

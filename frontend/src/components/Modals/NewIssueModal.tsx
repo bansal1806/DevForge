@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, AlertCircle } from 'lucide-react'
-import { createIssue } from '../../lib/api'
+import { createIssue, getErrorMessage } from '../../lib/api'
 import styles from './NewIssueModal.module.css'
 
 interface NewIssueModalProps {
@@ -28,8 +28,8 @@ export default function NewIssueModal({ isOpen, onClose, onSuccess, repoId }: Ne
       onClose()
       setTitle('')
       setDescription('')
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to create issue')
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to create issue'))
     } finally {
       setLoading(false)
     }
@@ -39,7 +39,7 @@ export default function NewIssueModal({ isOpen, onClose, onSuccess, repoId }: Ne
     <AnimatePresence>
       {isOpen && (
         <div className={styles['modal-overlay']}>
-          <motion.div 
+          <motion.div
             className={styles['modal-content']}
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -64,9 +64,9 @@ export default function NewIssueModal({ isOpen, onClose, onSuccess, repoId }: Ne
             <form className={styles['modal-form']} onSubmit={handleSubmit}>
               <div className={styles['form-group']}>
                 <label className={styles['form-label']}>Title <span style={{ color: 'var(--accent-neon)' }}>*</span></label>
-                <input 
-                  type="text" 
-                  className={styles['form-input']} 
+                <input
+                  type="text"
+                  className={styles['form-input']}
                   placeholder="e.g. Issue with data rendering"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
@@ -77,8 +77,8 @@ export default function NewIssueModal({ isOpen, onClose, onSuccess, repoId }: Ne
 
               <div className={styles['form-group']}>
                 <label className={styles['form-label']}>Description</label>
-                <textarea 
-                  className={styles['form-textarea']} 
+                <textarea
+                  className={styles['form-textarea']}
                   placeholder="Explain the problem or request..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}

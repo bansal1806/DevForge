@@ -4,7 +4,7 @@
   "description": "DevForge Backend API Server",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "nodemon --exec ts-node src/index.ts",
+    "dev": "node --watch-path=src --require ts-node/register src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "seed": "ts-node --transpile-only scripts/seed.ts",
@@ -22,7 +22,7 @@
     "@types/morgan": "^1.9.10",
     "axios": "^1.14.0",
     "cors": "^2.8.6",
-    "dockerode": "^4.0.10",
+    "dockerode": "^5.0.1",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
@@ -30,19 +30,19 @@
     "helmet": "^8.1.0",
     "morgan": "^1.10.1",
     "openai": "^6.33.0",
-    "simple-git": "^3.35.2",
+    "simple-git": "^4.0.2",
     "socket.io": "^4.8.3",
     "winston": "^3.19.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^25.5.2",
     "@types/supertest": "^6.0.2",
-    "nodemon": "^3.1.14",
     "supertest": "^7.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.2",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.11"
   }
 }

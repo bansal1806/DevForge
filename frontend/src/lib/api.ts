@@ -1,5 +1,33 @@
+import axios from 'axios'
 import apiClient from './apiClient'
 export { apiClient }
+
+/** Best user-facing message for a failed API call. */
+export function getErrorMessage(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data as { error?: unknown } | undefined
+    if (typeof data?.error === 'string') return data.error
+  }
+  if (err instanceof Error && err.message) return err.message
+  return fallback
+}
+
+/** Conflicting paths returned by a 409 merge response, if any. */
+export function getMergeConflicts(err: unknown): string[] {
+  if (axios.isAxiosError(err) && err.response?.status === 409) {
+    const conflicts = (err.response.data as { conflicts?: unknown })?.conflicts
+    if (Array.isArray(conflicts)) return conflicts.filter((c): c is string => typeof c === 'string')
+  }
+  return []
+}
+
+export type RepoPermission = 'read' | 'write' | 'admin'
+
+export interface PublicUser {
+  id: string
+  name: string | null
+  avatar_url: string | null
+}
 
 export interface Repository {
   id: string
@@ -13,13 +41,11 @@ export interface Repository {
   // Metadata (optional or joined)
   stars_count?: number
   starred_by_me?: boolean
+  /** Caller's effective permission (null when anonymous or no access) */
+  permission?: RepoPermission | null
   forks_count?: number
   language?: string
-  owner?: {
-    id: string
-    name: string
-    avatar_url: string | null
-  }
+  owner?: PublicUser | null
 }
 
 export interface Branch {
@@ -43,7 +69,7 @@ export interface FileNode {
 export interface PullRequest {
   id: string
   repo_id: string
-  author_id: string
+  author_id: string | null
   source_branch_id: string
   target_branch_id: string
   title: string
@@ -52,15 +78,38 @@ export interface PullRequest {
   created_at: string
   updated_at: string
   merged_at: string | null
-  author?: {
-    id: string
-    name: string
-    avatar_url: string | null
-  }
+  author?: PublicUser | null
+  source?: { id: string, name: string, last_commit_id?: string | null } | null
+  target?: { id: string, name: string, last_commit_id?: string | null } | null
   repo?: {
     id: string
     name: string
   }
+}
+
+export interface DiffEntry {
+  status: 'added' | 'modified' | 'deleted'
+  content: string | null
+  originalContent: string | null
+}
+
+export type DiffMap = Record<string, DiffEntry>
+
+export interface PullRequestDetail {
+  pr: PullRequest
+  diff: DiffMap
+  permissions: { canMerge: boolean, canClose: boolean }
+}
+
+export type ReviewStatus = 'approved' | 'changes_requested' | 'commented'
+
+export interface DiscussionItem {
+  id: string
+  type: 'comment' | 'review'
+  content: string | null
+  status?: ReviewStatus
+  created_at: string
+  author?: PublicUser | null
 }
 
 export interface Issue {
@@ -72,29 +121,22 @@ export interface Issue {
   status: 'open' | 'closed'
   created_at: string
   updated_at: string
-  author?: {
-    id: string
-    name: string
-    avatar_url: string | null
-  }
+  author?: PublicUser | null
   repo?: {
     id: string
     name: string
   }
+  permissions?: { canEdit: boolean }
 }
 
 export interface Gist {
   id: string
   user_id: string
-  title: string
+  title: string | null
   description: string | null
   is_public: boolean
   created_at: string
-  user?: {
-    id: string
-    name: string
-    avatar_url: string | null
-  }
+  user?: PublicUser | null
   files?: GistFile[]
 }
 
@@ -103,7 +145,7 @@ export interface GistFile {
   gist_id: string
   filename: string
   content: string
-  language: string
+  language: string | null
 }
 
 export interface ActivityItem {
@@ -114,21 +156,17 @@ export interface ActivityItem {
   created_at: string
   repo_id?: string
   repo?: { name: string }
-  author?: { name: string, avatar_url?: string }
+  author?: { name: string | null, avatar_url?: string | null }
 }
 
 export interface Commit {
   id: string
   repo_id: string
   branch_id: string
-  author_id: string
+  author_id: string | null
   message: string
   created_at: string
-  author?: {
-    id: string
-    name: string
-    avatar_url: string | null
-  }
+  author?: PublicUser | null
 }
 
 // Repositories
@@ -179,7 +217,10 @@ export async function getRepoMetrics(repoId: string): Promise<ExecutionStat[]> {
   return data || []
 }
 
-export async function updateRepository(repoId: string, updates: Partial<Repository>): Promise<Repository> {
+export async function updateRepository(
+  repoId: string,
+  updates: { name?: string, description?: string | null, is_private?: boolean, default_branch?: string }
+): Promise<Repository> {
   const { data } = await apiClient.patch<Repository>(`/api/repos/${repoId}`, updates)
   return data
 }
@@ -238,34 +279,45 @@ export async function getRepoPullRequests(repoId: string): Promise<PullRequest[]
   return data || []
 }
 
-export async function createPullRequest(prData: { 
-  repoId: string, 
-  sourceBranchId: string, 
-  targetBranchId: string, 
-  title: string, 
-  description: string 
+export async function createPullRequest(prData: {
+  repoId: string,
+  sourceBranchId: string,
+  targetBranchId: string,
+  title: string,
+  description: string
 }): Promise<PullRequest> {
   const { data } = await apiClient.post<PullRequest>('/api/pull-requests', prData)
   return data
 }
 
-export async function getPullRequestById(id: string): Promise<{ pr: PullRequest, diff: any }> {
-  const { data } = await apiClient.get<{ pr: PullRequest, diff: any }>(`/api/pull-requests/${id}`)
+export async function getPullRequestById(id: string): Promise<PullRequestDetail> {
+  const { data } = await apiClient.get<PullRequestDetail>(`/api/pull-requests/${id}`)
   return data
 }
 
-export async function getPRActivity(prId: string): Promise<any[]> {
-  const { data } = await apiClient.get<any[]>(`/api/pull-requests/${prId}/activity`)
+export async function updatePullRequest(id: string, updates: { status?: 'open' | 'closed', title?: string, description?: string }): Promise<PullRequest> {
+  const { data } = await apiClient.patch<PullRequest>(`/api/pull-requests/${id}`, updates)
+  return data
+}
+
+export async function getPRActivity(prId: string): Promise<DiscussionItem[]> {
+  const { data } = await apiClient.get<DiscussionItem[]>(`/api/pull-requests/${prId}/activity`)
   return data || []
 }
 
-export async function postPRComment(prId: string, content: string): Promise<any> {
-  const { data } = await apiClient.post<any>(`/api/pull-requests/${prId}/comments`, { content })
+export async function postPRComment(prId: string, content: string): Promise<DiscussionItem> {
+  const { data } = await apiClient.post<DiscussionItem>(`/api/pull-requests/${prId}/comments`, { content })
   return data
 }
 
-export async function mergePullRequest(prId: string): Promise<{ message: string }> {
-  const { data } = await apiClient.post<{ message: string }>(`/api/pull-requests/${prId}/merge`)
+export async function postPRReview(prId: string, status: ReviewStatus, content: string): Promise<DiscussionItem> {
+  const { data } = await apiClient.post<DiscussionItem>(`/api/pull-requests/${prId}/reviews`, { status, content })
+  return data
+}
+
+/** Throws on conflicts; read the conflicting paths with getMergeConflicts(err). */
+export async function mergePullRequest(prId: string): Promise<{ message: string, commitId: string }> {
+  const { data } = await apiClient.post<{ message: string, commitId: string }>(`/api/pull-requests/${prId}/merge`)
   return data
 }
 
@@ -290,19 +342,29 @@ export async function getIssueById(id: string): Promise<Issue> {
   return data
 }
 
-export async function getIssueComments(issueId: string): Promise<any[]> {
-  const { data } = await apiClient.get<any[]>(`/api/issues/${issueId}/comments`)
+export async function updateIssue(id: string, updates: { status?: 'open' | 'closed', title?: string, description?: string }): Promise<Issue> {
+  const { data } = await apiClient.patch<Issue>(`/api/issues/${id}`, updates)
+  return data
+}
+
+export async function getIssueComments(issueId: string): Promise<DiscussionItem[]> {
+  const { data } = await apiClient.get<DiscussionItem[]>(`/api/issues/${issueId}/comments`)
   return data || []
 }
 
-export async function postIssueComment(issueId: string, content: string): Promise<any> {
-  const { data } = await apiClient.post<any>(`/api/issues/${issueId}/comments`, { content })
+export async function postIssueComment(issueId: string, content: string): Promise<DiscussionItem> {
+  const { data } = await apiClient.post<DiscussionItem>(`/api/issues/${issueId}/comments`, { content })
   return data
 }
 
 // Gists
 export async function getGists(): Promise<Gist[]> {
   const { data } = await apiClient.get<Gist[]>('/api/gists')
+  return data || []
+}
+
+export async function getMyGists(): Promise<Gist[]> {
+  const { data } = await apiClient.get<Gist[]>('/api/gists/mine')
   return data || []
 }
 
@@ -319,6 +381,10 @@ export async function createGist(gistData: {
 export async function getGistById(id: string): Promise<Gist> {
   const { data } = await apiClient.get<Gist>(`/api/gists/${id}`)
   return data
+}
+
+export async function deleteGist(id: string): Promise<void> {
+  await apiClient.delete(`/api/gists/${id}`)
 }
 
 // AI Service
@@ -359,19 +425,20 @@ export interface ExecutionResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  timedOut?: boolean;
 }
 
-export async function runFile(repoId: string, filePath: string): Promise<ExecutionResult> {
-  const { data } = await apiClient.post<ExecutionResult>(`/api/execute/${repoId}/run`, { filePath });
+export async function runFile(repoId: string, filePath: string, branchId?: string): Promise<ExecutionResult> {
+  const { data } = await apiClient.post<ExecutionResult>(`/api/execute/${repoId}/run`, { filePath, branchId });
   return data;
 }
 
 // Users & Profile
 export interface UserProfile {
   id: string
-  name: string
+  name: string | null
   avatar_url: string | null
-  bio?: string
+  bio?: string | null
   created_at: string
 }
 
@@ -388,6 +455,26 @@ export async function getUserActivity(userId: string): Promise<ActivityItem[]> {
 export async function getUserRepos(userId: string): Promise<Repository[]> {
   const { data } = await apiClient.get<Repository[]>(`/api/users/${userId}/repos`)
   return data || []
+}
+
+export interface CurrentUser {
+  id: string
+  email: string
+  name: string
+  avatar_url: string
+  bio: string
+  role: 'user' | 'admin'
+  created_at: string | null
+}
+
+export async function getCurrentUser(): Promise<CurrentUser> {
+  const { data } = await apiClient.get<CurrentUser>('/api/auth/me')
+  return data
+}
+
+export async function updateProfile(updates: { name?: string, bio?: string, avatar_url?: string }): Promise<UserProfile> {
+  const { data } = await apiClient.put<UserProfile>('/api/auth/profile', updates)
+  return data
 }
 
 // Admin & Observability
@@ -408,10 +495,16 @@ export interface ExecutionStat {
 export interface AuditLog {
   id: string
   action: string
-  metadata: any
+  metadata: Record<string, unknown> | null
   created_at: string
-  user?: { name: string, email: string }
-  repository?: { name: string }
+  user?: { name: string | null, email: string | null } | null
+  repository?: { name: string } | null
+}
+
+export interface AdminMetrics {
+  executions: ExecutionStat[]
+  users: number
+  repos: number
 }
 
 export async function getSystemHealth(): Promise<SystemHealth> {
@@ -419,12 +512,8 @@ export async function getSystemHealth(): Promise<SystemHealth> {
   return data
 }
 
-export async function getAdminMetrics(): Promise<{ 
-  executions: ExecutionStat[], 
-  users: number, 
-  repos: number 
-}> {
-  const { data } = await apiClient.get<any>('/api/admin/metrics')
+export async function getAdminMetrics(): Promise<AdminMetrics> {
+  const { data } = await apiClient.get<AdminMetrics>('/api/admin/metrics')
   return data
 }
 

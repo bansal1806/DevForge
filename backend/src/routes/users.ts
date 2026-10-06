@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
-import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
-import { supabaseAdmin } from '../index';
+import { AuthenticatedRequest } from '../middleware/auth';
+import { isUuid } from '../lib/validation';
+import { supabaseAdmin } from '../lib/supabase';
 
 const router = Router();
 
@@ -10,14 +11,14 @@ const router = Router();
  */
 router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
-    const supabase = req.supabase || supabaseAdmin;
+    const id = req.params.id as string;
+    if (!isUuid(id)) return res.status(404).json({ error: 'User not found' });
 
-    const { data: profile, error } = await supabase
+    const { data: profile, error } = await supabaseAdmin
       .from('users')
       .select('id, name, avatar_url, bio, created_at')
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
     if (error || !profile) {
       res.status(404).json({ error: 'User not found' });
@@ -36,10 +37,10 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response) => {
  */
 router.get('/:id/repos', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
-    const supabase = req.supabase || supabaseAdmin;
+    const id = req.params.id as string;
+    if (!isUuid(id)) return res.json([]);
 
-    const { data: repos, error } = await supabase
+    const { data: repos, error } = await supabaseAdmin
       .from('repositories')
       .select('id, name, description, is_private, created_at, updated_at, stars(count)')
       .eq('owner_id', id)
@@ -66,7 +67,8 @@ router.get('/:id/repos', async (req: AuthenticatedRequest, res: Response) => {
  */
 router.get('/:id/activity', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
+    if (!isUuid(id)) return res.json([]);
 
     const { data: logs, error } = await supabaseAdmin
       .from('audit_logs')
@@ -85,17 +87,22 @@ router.get('/:id/activity', async (req: AuthenticatedRequest, res: Response) => 
     const typeByAction: Record<string, 'commit' | 'pr' | 'issue'> = {
       commit_created: 'commit',
       repo_created: 'commit',
+      pr_opened: 'pr',
       pr_merged: 'pr',
+      issue_opened: 'issue',
     };
 
     const activity = (logs || [])
-      .filter((log: any) => !log.repository || !log.repository.is_private)
+      .filter((log: any) => log.repository && !log.repository.is_private)
       .filter((log: any) => typeByAction[log.action])
       .map((log: any) => ({
         id: log.id,
         type: typeByAction[log.action],
-        message: log.action === 'repo_created'
-          ? `Created repository ${log.metadata?.name || ''}`.trim()
+        message:
+          log.action === 'repo_created' ? `Created repository ${log.metadata?.name || ''}`.trim()
+          : log.action === 'pr_opened' ? `Opened pull request "${log.metadata?.title || ''}"`
+          : log.action === 'pr_merged' ? `Merged pull request "${log.metadata?.title || ''}"`
+          : log.action === 'issue_opened' ? `Opened issue "${log.metadata?.title || ''}"`
           : log.metadata?.message,
         title: log.metadata?.title,
         repo_id: log.repo_id,

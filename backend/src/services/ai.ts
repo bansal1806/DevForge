@@ -1,13 +1,21 @@
 import OpenAI from 'openai';
 import { logger } from '../utils/logger';
 
-// Initialize OpenAI client (Optional key for mock mode support)
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || 'mock-key',
-});
+/** Thrown when the AI provider fails; the message is safe to show to users. */
+export class AIServiceError extends Error {}
+
+let client: OpenAI | null = null;
 
 export function isMockMode(): boolean {
   return !process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'mock-key';
+}
+
+// Created lazily so the key is read after env loading, never at import time.
+function getClient() {
+  if (!client) {
+    client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 25_000, maxRetries: 1 });
+  }
+  return client;
 }
 
 /**
@@ -25,14 +33,15 @@ export async function getAICompletion(prompt: string, mockResponse: string, syst
     if (system) messages.push({ role: 'system', content: system });
     messages.push({ role: 'user', content: prompt });
 
-    const response = await openai.chat.completions.create({
+    const response = await getClient().chat.completions.create({
       model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
       messages,
       temperature: 0.3,
+      max_tokens: 1200,
     });
-    return response.choices[0].message.content || 'AI returned an empty response.';
+    return response.choices[0]?.message?.content || 'AI returned an empty response.';
   } catch (err: any) {
-    logger.error('[AI Service] OpenAI Error:', err.message);
-    throw new Error('AI analysis failed. Please check your API configuration.');
+    logger.error(`[AI Service] OpenAI error: ${err.status || ''} ${err.message}`);
+    throw new AIServiceError('AI analysis failed. Please try again later.');
   }
 }

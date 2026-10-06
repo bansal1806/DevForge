@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { supabaseAdmin } from '../index';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { supabaseAdmin, createUserScopedClient } from '../lib/supabase';
+import { logger } from '../utils/logger';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -8,20 +9,24 @@ export interface AuthenticatedRequest extends Request {
     email: string;
     user_metadata: Record<string, unknown>;
   };
-  supabase?: SupabaseClient; // User-scoped client
+  supabase?: SupabaseClient; // User-scoped client (RLS enforced)
 }
 
-function createUserScopedClient(token: string): SupabaseClient {
-  const supabaseUrl = process.env.SUPABASE_URL || '';
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
+function bearerToken(req: Request): string | null {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) return null;
+  return header.slice('Bearer '.length).trim() || null;
+}
 
-  return createClient(supabaseUrl, supabaseAnonKey, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
-  });
+/** Verifies a Supabase access token and returns the user, or null. */
+export async function verifyAccessToken(token: string) {
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !data.user) return null;
+  return {
+    id: data.user.id,
+    email: data.user.email || '',
+    user_metadata: data.user.user_metadata || {},
+  };
 }
 
 /**
@@ -33,18 +38,13 @@ export async function optionalAuth(
   _res: Response,
   next: NextFunction
 ): Promise<void> {
-  const authHeader = req.headers.authorization;
+  const token = bearerToken(req);
 
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
+  if (token) {
     try {
-      const { data, error } = await supabaseAdmin.auth.getUser(token);
-      if (!error && data.user) {
-        req.user = {
-          id: data.user.id,
-          email: data.user.email || '',
-          user_metadata: data.user.user_metadata || {},
-        };
+      const user = await verifyAccessToken(token);
+      if (user) {
+        req.user = user;
         req.supabase = createUserScopedClient(token);
       }
     } catch {
@@ -64,38 +64,27 @@ export async function requireAuth(
   res: Response,
   next: NextFunction
 ): Promise<void> {
-  const authHeader = req.headers.authorization;
+  const token = bearerToken(req);
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!token) {
     res.status(401).json({ error: 'Missing or invalid authorization header' });
     return;
   }
 
-  const token = authHeader.split(' ')[1];
-
   try {
-    // 1. Verify token with Supabase Admin
-    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    const user = await verifyAccessToken(token);
 
-    if (error || !data.user) {
+    if (!user) {
       res.status(401).json({ error: 'Invalid or expired token' });
       return;
     }
 
-    // 2. Attach user data
-    req.user = {
-      id: data.user.id,
-      email: data.user.email || '',
-      user_metadata: data.user.user_metadata || {},
-    };
-
-    // 3. Create a user-scoped Supabase client that respects RLS
-    // This client uses the user's JWT instead of the service role key
+    req.user = user;
     req.supabase = createUserScopedClient(token);
 
     next();
-  } catch (err) {
-    console.error('Auth Middleware Error:', err);
+  } catch (err: any) {
+    logger.error(`Auth Middleware Error: ${err.message}`);
     res.status(500).json({ error: 'Authentication service error' });
   }
 }

@@ -1,7 +1,7 @@
-﻿import { Router, Response } from 'express';
+import { Router, Response } from 'express';
 import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
 import { requireAdmin } from '../middleware/authorize';
-import { supabaseAdmin } from '../index';
+import { supabaseAdmin } from '../lib/supabase';
 import { SandboxService } from '../services/sandbox';
 import { logger } from '../utils/logger';
 
@@ -51,7 +51,9 @@ router.get('/metrics', async (req: AuthenticatedRequest, res: Response) => {
     // 1. Execution Ratios
     const { data: stats, error: statsError } = await supabaseAdmin
       .from('execution_stats')
-      .select('language, status, duration');
+      .select('language, status, duration, created_at')
+      .order('created_at', { ascending: false })
+      .limit(1000);
 
     // 2. User Count
     const { count: userCount } = await supabaseAdmin
