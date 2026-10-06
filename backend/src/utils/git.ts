@@ -1,4 +1,4 @@
-import simpleGit, { SimpleGit } from 'simple-git';
+import { simpleGit, type SimpleGit } from 'simple-git';
 import fs from 'fs-extra';
 import path from 'path';
 import { logger } from './logger';
@@ -18,12 +18,17 @@ try {
 
 export class GitManager {
   private repoPath: string;
-  private git: SimpleGit;
+  private client?: SimpleGit;
 
   constructor(repoId: string) {
     if (!/^[0-9a-f-]{36}$/i.test(repoId)) throw new Error('Invalid repository id');
     this.repoPath = path.join(REPO_BASE_PATH, repoId);
-    this.git = simpleGit(this.repoPath);
+  }
+
+  // Created lazily: simple-git refuses a directory that doesn't exist yet,
+  // and the directory is only created by init().
+  private get git(): SimpleGit {
+    return (this.client ??= simpleGit(this.repoPath));
   }
 
   /**
