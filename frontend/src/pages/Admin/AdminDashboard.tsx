@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react'
+import type { ReactNode } from 'react'
+import axios from 'axios'
 import { motion } from 'framer-motion'
-import { 
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
+import {
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, Cell, PieChart, Pie
 } from 'recharts'
-import { 
-  Shield, 
-  Activity, 
-  Users, 
-  GitBranch, 
-  Terminal, 
-  Clock, 
-  CheckCircle2, 
-  AlertCircle, 
+import {
+  Shield,
+  Activity,
+  Users,
+  GitBranch,
+  Terminal,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
   Cpu,
   Database,
   History,
@@ -20,14 +22,15 @@ import {
   LayoutDashboard
 } from 'lucide-react'
 import { getSystemHealth, getAdminMetrics, getAdminLogs } from '../../lib/api'
-import type { SystemHealth, ExecutionStat, AuditLog } from '../../lib/api'
+import type { SystemHealth, AdminMetrics, AuditLog } from '../../lib/api'
 import styles from './AdminDashboard.module.css'
 
 export default function AdminDashboard() {
   const [health, setHealth] = useState<SystemHealth | null>(null)
-  const [metrics, setMetrics] = useState<{ executions: ExecutionStat[], users: number, repos: number } | null>(null)
+  const [metrics, setMetrics] = useState<AdminMetrics | null>(null)
   const [logs, setLogs] = useState<AuditLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [forbidden, setForbidden] = useState(false)
 
   useEffect(() => {
     async function fetchData() {
@@ -42,27 +45,31 @@ export default function AdminDashboard() {
         setMetrics(metricsRes)
         setLogs(logsRes)
       } catch (err) {
-        console.error('Failed to fetch admin data:', err)
+        if (axios.isAxiosError(err) && err.response?.status === 403) setForbidden(true)
+        else console.error('Failed to fetch admin data:', err)
       } finally {
         setLoading(false)
       }
     }
     fetchData()
-    
+
     // Auto-refresh health every 30s
-    const interval = setInterval(async () => {
-      const h = await getSystemHealth()
-      setHealth(h)
+    const interval = setInterval(() => {
+      getSystemHealth().then(setHealth).catch(() => undefined)
     }, 30000)
-    
+
     return () => clearInterval(interval)
   }, [])
 
   // Process data for charts
   const getDailyExecutions = () => {
     if (!metrics?.executions) return []
-    const days: any = {}
-    metrics.executions.forEach(ex => {
+    const days: Record<string, { name: string, success: number, error: number }> = {}
+    // API returns newest first; bucket chronologically so slice(-7) is the latest week
+    const chronological = [...metrics.executions].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    )
+    chronological.forEach(ex => {
       const day = new Date(ex.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       if (!days[day]) days[day] = { name: day, success: 0, error: 0 }
       if (ex.status === 'success') days[day].success++
@@ -73,7 +80,7 @@ export default function AdminDashboard() {
 
   const getLanguageStats = () => {
     if (!metrics?.executions) return []
-    const langs: any = {}
+    const langs: Record<string, { name: string, value: number }> = {}
     metrics.executions.forEach(ex => {
       if (!langs[ex.language]) langs[ex.language] = { name: ex.language, value: 0 }
       langs[ex.language].value++
@@ -82,6 +89,18 @@ export default function AdminDashboard() {
   }
 
   const chartColors = ['#22d3ee', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444']
+
+  if (forbidden) {
+    return (
+      <div className={styles['admin-dashboard']}>
+        <div style={{ height: '60vh', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+          <Shield size={48} />
+          <h2 style={{ color: 'white' }}>Administrator access required</h2>
+          <p>This dashboard is only available to platform administrators.</p>
+        </div>
+      </div>
+    )
+  }
 
   if (loading && !health) {
     return (
@@ -95,7 +114,7 @@ export default function AdminDashboard() {
 
   return (
     <div className={styles['admin-dashboard']}>
-      <motion.div 
+      <motion.div
         className={styles['admin-header']}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -120,6 +139,14 @@ export default function AdminDashboard() {
         <StatCard label="Total Users" value={metrics?.users || 0} icon={<Users size={20} />} trend="Registered accounts" />
         <StatCard label="Repositories" value={metrics?.repos || 0} icon={<GitBranch size={20} />} trend="Across all users" />
         <StatCard label="Code Runs" value={metrics?.executions.length || 0} icon={<Terminal size={20} />} trend="Sandboxed executions" />
+        <StatCard
+          label="Snapshot Storage"
+          value={formatBytes(metrics?.storage?.stored_bytes || 0)}
+          icon={<Database size={20} />}
+          trend={metrics?.storage && metrics.storage.stored_bytes > 0
+            ? `${(metrics.storage.logical_bytes / metrics.storage.stored_bytes).toFixed(1)}× deduplicated (${formatBytes(metrics.storage.logical_bytes)} logical)`
+            : 'Content-addressed blobs'}
+        />
       </div>
 
       {/* Charts & Logs */}
@@ -130,7 +157,7 @@ export default function AdminDashboard() {
           </div>
           <div style={{ width: '100%', height: 300 }}>
             <ResponsiveContainer>
-              <AreaChart data={getDailyExecutions() as any[]}>
+              <AreaChart data={getDailyExecutions()}>
                 <defs>
                   <linearGradient id="colorSuccess" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
@@ -140,7 +167,7 @@ export default function AdminDashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                 <XAxis dataKey="name" stroke="var(--text-muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
                 <YAxis stroke="var(--text-muted)" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
-                <Tooltip 
+                <Tooltip
                   contentStyle={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
                   itemStyle={{ fontSize: '12px' }}
                 />
@@ -159,7 +186,7 @@ export default function AdminDashboard() {
             <ResponsiveContainer>
               <PieChart>
                 <Pie
-                  data={getLanguageStats() as any[]}
+                  data={getLanguageStats()}
                   cx="50%"
                   cy="50%"
                   innerRadius={60}
@@ -167,7 +194,7 @@ export default function AdminDashboard() {
                   paddingAngle={5}
                   dataKey="value"
                 >
-                  {getLanguageStats().map((_entry: any, index: number) => (
+                  {getLanguageStats().map((_entry, index) => (
                     <Cell key={`cell-${index}`} fill={chartColors[index % chartColors.length]} />
                   ))}
                 </Pie>
@@ -176,7 +203,7 @@ export default function AdminDashboard() {
             </ResponsiveContainer>
           </div>
           <div style={{ marginTop: -20, display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'center' }}>
-            {getLanguageStats().map((item: any, i: number) => (
+            {getLanguageStats().map((item, i) => (
                 <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                   <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: chartColors[i % chartColors.length] }} />
                   {item.name}
@@ -217,7 +244,7 @@ export default function AdminDashboard() {
   )
 }
 
-function HealthPill({ label, status, icon }: { label: string, status: string, icon: any }) {
+function HealthPill({ label, status, icon }: { label: string, status: string, icon: ReactNode }) {
   const isOnline = status === 'online'
   return (
     <div className={styles['health-pill']}>
@@ -230,7 +257,13 @@ function HealthPill({ label, status, icon }: { label: string, status: string, ic
   )
 }
 
-function StatCard({ label, value, trend, icon }: { label: string, value: number | string, trend: string, icon: any }) {
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function StatCard({ label, value, trend, icon }: { label: string, value: number | string, trend: string, icon: ReactNode }) {
   return (
     <motion.div className={styles['stat-card']} whileHover={{ y: -5 }}>
       <div className={styles['stat-label']}>{label}</div>

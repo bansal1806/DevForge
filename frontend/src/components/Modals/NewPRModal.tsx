@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, GitPullRequest } from 'lucide-react'
-import { createPullRequest } from '../../lib/api'
+import { createPullRequest, getErrorMessage } from '../../lib/api'
 import type { Branch } from '../../lib/api'
 import styles from './NewIssueModal.module.css' // Reuse modal styles
 
@@ -54,8 +54,8 @@ export default function NewPRModal({ isOpen, onClose, onSuccess, repoId, branche
       setTitle('')
       setDescription('')
       setSourceId('')
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to create pull request')
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to create pull request'))
     } finally {
       setLoading(false)
     }
@@ -65,7 +65,7 @@ export default function NewPRModal({ isOpen, onClose, onSuccess, repoId, branche
     <AnimatePresence>
       {isOpen && (
         <div className={styles['modal-overlay']}>
-          <motion.div 
+          <motion.div
             className={styles['modal-content']}
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -90,9 +90,9 @@ export default function NewPRModal({ isOpen, onClose, onSuccess, repoId, branche
             <form className={styles['modal-form']} onSubmit={handleSubmit}>
               <div className={styles['form-group']}>
                 <label className={styles['form-label']}>Title <span style={{ color: 'var(--accent-neon)' }}>*</span></label>
-                <input 
-                  type="text" 
-                  className={styles['form-input']} 
+                <input
+                  type="text"
+                  className={styles['form-input']}
                   placeholder="e.g. Add landing page animations"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
@@ -103,9 +103,9 @@ export default function NewPRModal({ isOpen, onClose, onSuccess, repoId, branche
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
                 <div className={styles['form-group']} style={{ marginBottom: 0 }}>
                   <label className={styles['form-label']}>Source <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(compare)</span></label>
-                  <select 
-                    className={styles['form-input']} 
-                    value={sourceId} 
+                  <select
+                    className={styles['form-input']}
+                    value={sourceId}
                     onChange={(e) => setSourceId(e.target.value)}
                     required
                     style={{ appearance: 'auto' }}
@@ -118,9 +118,9 @@ export default function NewPRModal({ isOpen, onClose, onSuccess, repoId, branche
                 </div>
                 <div className={styles['form-group']} style={{ marginBottom: 0 }}>
                   <label className={styles['form-label']}>Target <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(base)</span></label>
-                  <select 
-                    className={styles['form-input']} 
-                    value={targetId} 
+                  <select
+                    className={styles['form-input']}
+                    value={targetId}
                     onChange={(e) => setTargetId(e.target.value)}
                     required
                     style={{ appearance: 'auto' }}
@@ -135,8 +135,8 @@ export default function NewPRModal({ isOpen, onClose, onSuccess, repoId, branche
 
               <div className={styles['form-group']}>
                 <label className={styles['form-label']}>Description</label>
-                <textarea 
-                  className={styles['form-textarea']} 
+                <textarea
+                  className={styles['form-textarea']}
                   placeholder="Describe your changes..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}

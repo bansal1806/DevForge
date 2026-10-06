@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, GitFork, Globe, Lock } from 'lucide-react'
 import apiClient from '../../lib/apiClient'
+import { getErrorMessage } from '../../lib/api'
 import styles from './NewRepositoryModal.module.css'
 
 interface NewRepositoryModalProps {
@@ -33,8 +34,8 @@ export default function NewRepositoryModal({ isOpen, onClose, onSuccess }: NewRe
       setName('')
       setDescription('')
       setIsPrivate(false)
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to create repository')
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to create repository'))
     } finally {
       setLoading(false)
     }
@@ -44,7 +45,7 @@ export default function NewRepositoryModal({ isOpen, onClose, onSuccess }: NewRe
     <AnimatePresence>
       {isOpen && (
         <div className={styles['modal-overlay']}>
-          <motion.div 
+          <motion.div
             className={styles['modal-content']}
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -69,9 +70,9 @@ export default function NewRepositoryModal({ isOpen, onClose, onSuccess }: NewRe
             <form className={styles['modal-form']} onSubmit={handleSubmit}>
               <div className={styles['form-group']}>
                 <label className={styles['form-label']}>Repository name <span style={{ color: 'var(--accent-neon)' }}>*</span></label>
-                <input 
-                  type="text" 
-                  className={styles['form-input']} 
+                <input
+                  type="text"
+                  className={styles['form-input']}
                   placeholder="e.g. my-awesome-project"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -81,8 +82,8 @@ export default function NewRepositoryModal({ isOpen, onClose, onSuccess }: NewRe
 
               <div className={styles['form-group']}>
                 <label className={styles['form-label']}>Description <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
-                <textarea 
-                  className={styles['form-textarea']} 
+                <textarea
+                  className={styles['form-textarea']}
                   placeholder="Tell us about your project..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -90,7 +91,7 @@ export default function NewRepositoryModal({ isOpen, onClose, onSuccess }: NewRe
               </div>
 
               <div className={styles['visibility-selector']}>
-                <div 
+                <div
                   className={`${styles['visibility-option']} ${!isPrivate ? styles['visibility-option--active'] : ''}`}
                   onClick={() => setIsPrivate(false)}
                 >
@@ -101,7 +102,7 @@ export default function NewRepositoryModal({ isOpen, onClose, onSuccess }: NewRe
                   </div>
                 </div>
 
-                <div 
+                <div
                   className={`${styles['visibility-option']} ${isPrivate ? styles['visibility-option--active'] : ''}`}
                   onClick={() => setIsPrivate(true)}
                 >

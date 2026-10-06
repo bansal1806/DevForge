@@ -50,26 +50,15 @@ async function ensureDemoUser(): Promise<string> {
 }
 
 async function commitBranch(repoId: string, branchId: string, authorId: string, message: string) {
-  const { data: commit, error } = await supabase
-    .from('commits')
-    .insert({ repo_id: repoId, branch_id: branchId, author_id: authorId, message })
-    .select()
-    .single();
+  // Atomic commit + snapshot + branch pointer, with parent ancestry (migration 009)
+  const { data: commit, error } = await supabase.rpc('create_commit', {
+    p_repo: repoId,
+    p_branch: branchId,
+    p_author: authorId,
+    p_message: message,
+  });
   if (error || !commit) throw new Error(`commit failed: ${error?.message}`);
-
-  const { data: files } = await supabase
-    .from('files')
-    .select('path, content')
-    .eq('repo_id', repoId)
-    .eq('branch_id', branchId);
-
-  if (files && files.length > 0) {
-    await supabase.from('file_snapshots').insert(
-      files.map((f) => ({ commit_id: commit.id, repo_id: repoId, path: f.path, content: f.content }))
-    );
-  }
-  await supabase.from('branches').update({ last_commit_id: commit.id }).eq('id', branchId);
-  return commit;
+  return commit as { id: string };
 }
 
 async function upsertFile(repoId: string, branchId: string, filePath: string, content: string) {
@@ -121,12 +110,12 @@ async function seed() {
       `def fib(n):\n    if n <= 1:\n        return n\n    return fib(n - 1) + fib(n - 2)\n\n\nif __name__ == "__main__":\n    for i in range(10):\n        print(f"fib({i}) = {fib(i)}")\n`);
     await upsertFile(repo.id, main.id, 'quicksort.js',
       `function quicksort(arr) {\n  if (arr.length <= 1) return arr;\n  const [pivot, ...rest] = arr;\n  const left = rest.filter(x => x < pivot);\n  const right = rest.filter(x => x >= pivot);\n  return [...quicksort(left), pivot, ...quicksort(right)];\n}\n\nconsole.log(quicksort([5, 3, 8, 1, 9, 2, 7]));\n`);
-    await commitBranch(repo.id, main.id, userId, 'Initial commit: fibonacci and quicksort');
+    const initialCommit = await commitBranch(repo.id, main.id, userId, 'Initial commit: fibonacci and quicksort');
 
     // Feature branch with an improvement — powers a real PR diff
     const { data: feature } = await supabase
       .from('branches')
-      .insert({ repo_id: repo.id, name: 'feature/memoized-fib', last_commit_id: main.last_commit_id })
+      .insert({ repo_id: repo.id, name: 'feature/memoized-fib', last_commit_id: initialCommit.id })
       .select()
       .single();
     if (!feature) throw new Error('feature branch insert failed');

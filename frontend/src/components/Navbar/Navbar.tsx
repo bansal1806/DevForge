@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link, useNavigate } from 'react-router-dom'
-import { Search, Bell, Plus, GitBranch, Command, GitFork, User, Settings, LogOut, Code2, Bug } from 'lucide-react'
+import { Search, Bell, Plus, GitBranch, Command, GitFork, User, Shield, LogOut, Code2, Bug } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useStore } from '../../store/useStore'
 import { supabase } from '../../lib/supabase'
+import { getCurrentUser } from '../../lib/api'
 import NewRepositoryModal from '../Modals/NewRepositoryModal'
 import NewGistModal from '../Modals/NewGistModal'
 import styles from './Navbar.module.css'
@@ -17,6 +18,17 @@ export default function Navbar() {
   const [searchQuery, setSearchQuery] = useState('')
   const navRef = useRef<HTMLElement>(null)
   const { user } = useAuth()
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  // Only platform admins see the observability dashboard link
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    getCurrentUser()
+      .then((me) => { if (!cancelled) setIsAdmin(me.role === 'admin') })
+      .catch(() => { if (!cancelled) setIsAdmin(false) })
+    return () => { cancelled = true }
+  }, [user])
   const { setRepositories, setLoading } = useStore()
   const navigate = useNavigate()
 
@@ -155,7 +167,9 @@ export default function Navbar() {
                 <div style={{ padding: '8px 12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Signed in as <b style={{ color: 'var(--text-primary)'}}>{user?.email}</b></div>
                 <div className="dropdown-divider" />
                 <button className="dropdown-item" onClick={() => { setActiveDropdown(null); navigate(`/profile/${user?.id}`) }}><User size={14}/> Your Profile</button>
-                <button className="dropdown-item" onClick={() => setActiveDropdown(null)}><Settings size={14}/> Settings</button>
+                {isAdmin && (
+                  <button className="dropdown-item" onClick={() => { setActiveDropdown(null); navigate('/admin') }}><Shield size={14}/> Admin dashboard</button>
+                )}
                 <div className="dropdown-divider" />
                 <button className="dropdown-item" onClick={handleSignOut}><LogOut size={14}/> Sign out</button>
               </motion.div>

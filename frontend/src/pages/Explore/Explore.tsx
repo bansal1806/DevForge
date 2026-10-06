@@ -29,13 +29,21 @@ export default function Explore() {
   const query = searchParams.get('q') || ''
   const [searchInput, setSearchInput] = useState(query)
 
-  useEffect(() => {
+  // Keep the input in sync when the URL query changes (back/forward, links)
+  const [syncedQuery, setSyncedQuery] = useState(query)
+  if (query !== syncedQuery) {
+    setSyncedQuery(query)
     setSearchInput(query)
     setLoading(true)
+  }
+
+  useEffect(() => {
+    let cancelled = false
     getExploreRepos(query || undefined)
-      .then(setRepos)
+      .then((result) => { if (!cancelled) setRepos(result) })
       .catch(console.error)
-      .finally(() => setLoading(false))
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [query])
 
   const handleSearch = (e: React.FormEvent) => {

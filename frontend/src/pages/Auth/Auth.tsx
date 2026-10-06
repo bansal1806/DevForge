@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { GitBranch, Mail, Lock, AlertCircle, Loader2, Sparkles } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { apiClient } from '../../lib/api'
+import { apiClient, getErrorMessage } from '../../lib/api'
 import styles from './Auth.module.css'
 
 export default function Auth() {
@@ -26,8 +26,8 @@ export default function Auth() {
       })
       if (sessionError) throw sessionError
       navigate('/dashboard')
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Demo access failed')
+    } catch (err) {
+      setError(getErrorMessage(err, 'Demo access failed'))
     } finally {
       setDemoLoading(false)
     }
@@ -40,10 +40,10 @@ export default function Auth() {
 
     try {
       const endpoint = isLogin ? '/api/auth/login' : '/api/auth/signup'
-      
-      const { data: result } = await apiClient.post(endpoint, { 
-        email, 
-        password 
+
+      const { data: result } = await apiClient.post(endpoint, {
+        email,
+        password
       })
 
       if (isLogin) {
@@ -60,9 +60,8 @@ export default function Auth() {
         alert('Registration successful! Please check your email if confirmation is required.')
         setIsLogin(true)
       }
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.error || err.message || 'An error occurred during authentication'
-      setError(errorMessage)
+    } catch (err) {
+      setError(getErrorMessage(err, 'An error occurred during authentication'))
     } finally {
       setLoading(false)
     }
@@ -91,7 +90,7 @@ export default function Auth() {
         </div>
 
         {error && (
-          <motion.div 
+          <motion.div
             className={styles['auth-error']}
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}

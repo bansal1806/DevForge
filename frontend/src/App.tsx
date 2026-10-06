@@ -15,6 +15,7 @@ import GistDetail from './pages/Gists/GistDetail'
 import Profile from './pages/Profile/Profile'
 import Auth from './pages/Auth/Auth'
 import AdminDashboard from './pages/Admin/AdminDashboard'
+import CommitDetail from './pages/Commits/CommitDetail'
 import ProtectedRoute from './components/ProtectedRoute/ProtectedRoute'
 
 function App() {
@@ -22,7 +23,7 @@ function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/auth" element={<Auth />} />
-      
+
       {/* Protected Routes */}
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
@@ -36,6 +37,7 @@ function App() {
           <Route path="/repo/:id" element={<RepoView />} />
           <Route path="/repo/:repoId/issues/:issueId" element={<IssueDetail />} />
           <Route path="/repo/:repoId/pull-requests/:prId" element={<PRDetail />} />
+          <Route path="/repo/:repoId/commits/:commitId" element={<CommitDetail />} />
           <Route path="/gists/:id" element={<GistDetail />} />
           <Route path="/profile/:id" element={<Profile />} />
           <Route path="/admin" element={<AdminDashboard />} />

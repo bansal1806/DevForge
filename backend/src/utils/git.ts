@@ -1,14 +1,15 @@
-import simpleGit, { SimpleGit } from 'simple-git';
+import { simpleGit, type SimpleGit } from 'simple-git';
 import fs from 'fs-extra';
 import path from 'path';
 import { logger } from './logger';
+import { isServerless } from '../lib/env';
 
 const REPO_BASE_PATH = path.join(process.cwd(), 'data', 'repos');
 
 // Ensure base path exists. Serverless filesystems are read-only — the git
 // mirror is disabled there, so a failure here must not crash module load.
 try {
-  if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  if (!isServerless) {
     fs.ensureDirSync(REPO_BASE_PATH);
   }
 } catch {
@@ -17,11 +18,17 @@ try {
 
 export class GitManager {
   private repoPath: string;
-  private git: SimpleGit;
+  private client?: SimpleGit;
 
   constructor(repoId: string) {
+    if (!/^[0-9a-f-]{36}$/i.test(repoId)) throw new Error('Invalid repository id');
     this.repoPath = path.join(REPO_BASE_PATH, repoId);
-    this.git = simpleGit(this.repoPath);
+  }
+
+  // Created lazily: simple-git refuses a directory that doesn't exist yet,
+  // and the directory is only created by init().
+  private get git(): SimpleGit {
+    return (this.client ??= simpleGit(this.repoPath));
   }
 
   /**
@@ -57,13 +64,32 @@ export class GitManager {
   }
 
   /**
+   * Remove a file from disk and the index (no-op if it doesn't exist)
+   */
+  async removeFile(filePath: string): Promise<void> {
+    const fullPath = path.join(this.repoPath, filePath);
+    if (!(await fs.pathExists(fullPath))) return;
+    await fs.remove(fullPath);
+    await this.git.raw(['rm', '--cached', '--ignore-unmatch', '--quiet', '--', filePath]);
+  }
+
+  /**
+   * Delete the whole on-disk mirror
+   */
+  async destroy(): Promise<void> {
+    await fs.remove(this.repoPath);
+  }
+
+  /**
    * Commit staged changes
    */
   async commit(message: string, author?: { name: string, email: string }): Promise<void> {
     try {
       const options: any = {};
       if (author) {
-        options['--author'] = `"${author.name} <${author.email}>"`;
+        // simple-git passes args without a shell, so no extra quoting
+        const clean = (v: string) => v.replace(/[<>\r\n]/g, '');
+        options['--author'] = `${clean(author.name)} <${clean(author.email)}>`;
       }
       await this.git.commit(message, undefined, options);
       logger.info(`Committed changes to ${this.repoPath}: ${message}`);
