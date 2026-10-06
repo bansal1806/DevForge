@@ -1,11 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Variants } from 'framer-motion'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
-import socket, { connectSocket } from '../../lib/socket'
+import { useRepoRealtime, type FileChange } from '../../lib/useRepoRealtime'
 import { useStore } from '../../store/useStore'
-import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   getRepositoryById,
@@ -88,12 +87,6 @@ interface TreeNode {
   updated_at?: string;
 }
 
-interface PresenceUser {
-  id: string;
-  name: string;
-  color: string;
-}
-
 export default function RepoView() {
   const { id } = useParams()
   const {
@@ -117,7 +110,6 @@ export default function RepoView() {
   // AI State
   const [isAIExplaining, setIsAIExplaining] = useState(false)
   const [aiExplanation, setAIExplanation] = useState<string | null>(null)
-  const [activeUsers, setActiveUsers] = useState<PresenceUser[]>([])
 
   // Execution State
   const [isRunning, setIsRunning] = useState(false)
@@ -140,7 +132,7 @@ export default function RepoView() {
   const canWrite = activeRepo?.permission === 'write' || activeRepo?.permission === 'admin'
   const isOwner = !!user && activeRepo?.owner_id === user.id
 
-  // Latest values for socket handlers that are registered once
+  // Latest values for realtime handlers that are registered once
   const activeFileRef = useRef(activeFile)
   const activeBranchRef = useRef(activeBranch)
   useEffect(() => { activeFileRef.current = activeFile }, [activeFile])
@@ -365,13 +357,6 @@ export default function RepoView() {
         if (prsRes.status === 'fulfilled') setRepoPRs(prsRes.value)
         if (metricsRes.status === 'fulfilled') setRepoMetrics(metricsRes.value)
 
-        // Realtime presence/sync — the server verifies the token and repo access
-        const { data: { session } } = await supabase.auth.getSession()
-        if (session?.access_token) {
-          connectSocket(session.access_token)
-          socket.emit('join-room', id)
-        }
-
       } catch (err) {
         console.error(err)
       } finally {
@@ -381,8 +366,6 @@ export default function RepoView() {
     init()
 
     return () => {
-      socket.emit('leave-room', id)
-      socket.disconnect()
       setActiveRepo(null)
       setActiveFile(null)
     }
@@ -426,24 +409,16 @@ export default function RepoView() {
     return () => { cancelled = true }
   }, [activeTab, id, activeBranchId, commitsVersion])
 
-  // 3. Socket listeners
-  useEffect(() => {
-    const onFileSync = (payload: { branchId: string, path: string, content: string }) => {
-      const file = activeFileRef.current
-      // Only apply edits for the exact branch + file that is open
-      if (!file || payload.branchId !== activeBranchRef.current?.id || payload.path !== file.path) return
-      setActiveFile({ ...file, content: payload.content })
-    }
-    const onRoomUsers = (users: PresenceUser[]) => setActiveUsers(users)
-
-    socket.on('file-sync', onFileSync)
-    socket.on('room-users', onRoomUsers)
-
-    return () => {
-      socket.off('file-sync', onFileSync)
-      socket.off('room-users', onRoomUsers)
-    }
+  // 3. Live collaboration (Supabase Realtime, authorized by RLS — migration 012)
+  const handleRemoteChange = useCallback((change: FileChange) => {
+    const file = activeFileRef.current
+    // Only apply edits for the exact branch + file that is open
+    if (!file || change.branchId !== activeBranchRef.current?.id || change.path !== file.path) return
+    setActiveFile({ ...file, content: change.content })
   }, [setActiveFile])
+
+  const displayName = (user?.user_metadata?.full_name as string | undefined) || user?.email?.split('@')[0] || 'User'
+  const { users: activeUsers, sendFileChange } = useRepoRealtime(id, user?.id, displayName, handleRemoteChange)
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -466,8 +441,8 @@ export default function RepoView() {
     if (value !== undefined && activeFile) {
       setActiveFile({ ...activeFile, content: value })
       setIsDirty(true)
-      if (activeBranch) {
-        socket.emit('file-change', { repoId: id, branchId: activeBranch.id, path: activeFile.path, content: value })
+      if (activeBranch && canWrite) {
+        sendFileChange({ branchId: activeBranch.id, path: activeFile.path, content: value })
       }
     }
   }

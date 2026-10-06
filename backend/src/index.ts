@@ -1,6 +1,5 @@
 import './lib/env';
 import express from 'express';
-import { createServer } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -16,7 +15,6 @@ import activityRoutes from './routes/activity';
 import aiRoutes from './routes/ai';
 import executeRoutes from './routes/execute';
 import adminRoutes from './routes/admin';
-import { attachRealtime } from './realtime';
 
 import { blockBots, limitPayloadSize } from './middleware/abuseProtection';
 import { PostgresRateLimitStore } from './middleware/rateLimitStore';
@@ -28,7 +26,6 @@ const MAX_BODY_BYTES = 1024 * 1024; // 1MB
 
 const app = express();
 app.set('trust proxy', 1); // Trust first proxy for correct IP rate limiting in serverless environments
-const httpServer = createServer(app);
 
 // FRONTEND_URL accepts a comma-separated list so preview deployments can be allowed too.
 const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
@@ -180,11 +177,9 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
   res.status(500).json({ error: 'Internal server error occurred and has been logged.' });
 });
 
-attachRealtime(httpServer, allowedOrigins);
-
 // Start Server
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
-  httpServer.listen(PORT, () => {
+  app.listen(PORT, () => {
     logger.info(`⚡ DevForge API Listening on port ${PORT}`);
   });
 }

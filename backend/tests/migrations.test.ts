@@ -44,6 +44,16 @@ beforeAll(async () => {
     GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
+
+    -- Minimal stand-in for Supabase Realtime's schema
+    CREATE SCHEMA realtime;
+    CREATE TABLE realtime.messages (id bigserial PRIMARY KEY, topic text, extension text, payload jsonb);
+    ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
+    CREATE FUNCTION realtime.topic() RETURNS text LANGUAGE sql STABLE AS
+      $$ SELECT nullif(current_setting('realtime.topic', true), '') $$;
+    GRANT USAGE ON SCHEMA realtime TO anon, authenticated;
+    GRANT SELECT, INSERT ON realtime.messages TO authenticated;
+    GRANT USAGE ON SEQUENCE realtime.messages_id_seq TO authenticated;
   `);
 
   for (const file of migrationFiles()) {
@@ -306,6 +316,52 @@ describe('shared rate limits', () => {
     await expect(q(`SELECT rate_limit_hit('x', 10)`)).rejects.toThrow(/at least 1000ms/);
     await expect(asRole(A, () => q(`SELECT rate_limit_hit('x', 60000)`))).rejects.toThrow(/permission denied/);
     await expect(asRole(A, () => q(`SELECT * FROM rate_limits`))).rejects.toThrow(/permission denied/);
+  });
+});
+
+describe('realtime channel authorization', () => {
+  const C = '00000000-0000-0000-0000-00000000000c';
+  let repo: string;
+
+  const onTopic = (topic: string) => db.query(`SELECT set_config('realtime.topic', $1, false)`, [topic]);
+  const send = (uid: string, extension: 'broadcast' | 'presence') =>
+    asRole(uid, () => q(`INSERT INTO realtime.messages (topic, extension, payload) VALUES (realtime.topic(), $1, '{}')`, [extension]));
+  const visible = (uid: string) => asRole(uid, () => q(`SELECT id FROM realtime.messages WHERE topic = realtime.topic()`));
+
+  beforeAll(async () => {
+    await q(`INSERT INTO auth.users (id, email) VALUES ('${C}', 'c@x.com')`);
+    await db.exec('SET ROLE service_role');
+    repo = (await one(`INSERT INTO repositories (name, owner_id, is_private) VALUES ('live', '${A}', true) RETURNING id`)).id;
+    await db.exec('RESET ROLE');
+    await onTopic(`repo:${repo}`);
+  });
+
+  it('lets the owner broadcast, track presence and receive', async () => {
+    await expect(send(A, 'broadcast')).resolves.toBeDefined();
+    await expect(send(A, 'presence')).resolves.toBeDefined();
+    expect((await visible(A)).length).toBe(2);
+  });
+
+  it('shuts strangers out of private repo channels', async () => {
+    await expect(send(C, 'presence')).rejects.toThrow(/row-level security/);
+    await expect(send(C, 'broadcast')).rejects.toThrow(/row-level security/);
+    expect(await visible(C)).toHaveLength(0);
+  });
+
+  it('lets read collaborators listen and show presence, but not broadcast edits', async () => {
+    await db.exec('SET ROLE service_role');
+    await q(`INSERT INTO repo_collaborators (repo_id, user_id, permission) VALUES ($1, '${C}', 'read')`, [repo]);
+    await db.exec('RESET ROLE');
+
+    await expect(send(C, 'presence')).resolves.toBeDefined();
+    await expect(send(C, 'broadcast')).rejects.toThrow(/row-level security/);
+    expect((await visible(C)).length).toBeGreaterThan(0);
+  });
+
+  it('denies malformed topics', async () => {
+    await onTopic('repo:not-a-uuid');
+    await expect(send(A, 'presence')).rejects.toThrow(/row-level security/);
+    await onTopic(`repo:${repo}`);
   });
 });
 
