@@ -46,3 +46,6 @@ ehthumbs.db
 data/
 backend/data/
 logs/
+
+# Vercel local build output / project link
+.vercel/
