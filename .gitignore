@@ -41,3 +41,6 @@ yarn-error.log*
 Thumbs.db
 ehthumbs.db
 [Dd]esktop.ini
+
+# Vercel local build output / project link
+.vercel/
