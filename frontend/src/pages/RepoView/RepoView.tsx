@@ -4,7 +4,8 @@ import type { Variants } from 'framer-motion'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 import { useRepoRealtime, type FileChange } from '../../lib/useRepoRealtime'
-import { useDialog, toast } from '../../components/ui'
+import { useDialog, toast, EmptyState, Skeleton } from '../../components/ui'
+import { CommitGraph } from '../../components/CommitGraph/CommitGraph'
 import { sparkBurst } from '../../lib/sparks'
 import { useRegisterCommands } from '../../contexts/CommandPalette'
 import type { PaletteCommand } from '../../contexts/CommandPalette'
@@ -1090,25 +1091,25 @@ export default function RepoView() {
               </div>
 
               {commitsLoading && repoCommits.length === 0 ? (
-                <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading history...</div>
-              ) : repoCommits.length === 0 ? (
-                <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>No commits on this branch yet.</div>
-              ) : (
-                repoCommits.map((commit, i) => (
-                  <motion.div key={commit.id} custom={i} variants={itemVariants} initial="hidden" animate="visible">
-                    <Link to={`/repo/${id}/commits/${commit.id}`} className={styles['tab-list-item']}>
-                      <GitCommitHorizontal size={18} style={{ color: commit.merge_parent_id ? 'var(--accent-purple)' : 'var(--accent-neon)' }} />
-                      <div className={styles['tab-list-item-content']}>
-                        <div className={styles['tab-list-item-title']}>
-                          {commit.message} <span style={{ color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>{commit.id.slice(0, 7)}</span>
-                        </div>
-                        <div className={styles['tab-list-item-meta']}>
-                          {commit.author?.name || 'Deleted user'} committed {new Date(commit.created_at).toLocaleString()}
-                        </div>
+                <div style={{ display: 'grid', gap: 'var(--space-3)', padding: 'var(--space-4) 0' }} aria-busy="true" aria-label="Loading history">
+                  {[0, 1, 2, 3].map((n) => (
+                    <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', paddingLeft: 'var(--space-3)' }}>
+                      <Skeleton width={14} height={14} radius="50%" />
+                      <Skeleton width={28} height={28} radius="50%" />
+                      <div style={{ flex: 1, display: 'grid', gap: 6 }}>
+                        <Skeleton width={`${60 - n * 8}%`} height={14} />
+                        <Skeleton width="30%" height={10} />
                       </div>
-                    </Link>
-                  </motion.div>
-                ))
+                    </div>
+                  ))}
+                </div>
+              ) : repoCommits.length === 0 ? (
+                <EmptyState
+                  title="No commits on this branch yet"
+                  description="Edit a file and commit it to start this branch's history."
+                />
+              ) : (
+                <CommitGraph commits={repoCommits} repoId={id!} />
               )}
             </div>
           ) : activeTab === 'Insights' ? (

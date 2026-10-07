@@ -10,6 +10,8 @@ import {
 } from '../../components/ui'
 import { fadeUp, stagger } from '../../lib/motion'
 import { sparkBurst } from '../../lib/sparks'
+import { CommitGraph } from '../../components/CommitGraph/CommitGraph'
+import type { Commit } from '../../lib/api'
 import styles from './StyleGuide.module.css'
 
 const SWATCHES: [string, string][] = [
@@ -37,6 +39,18 @@ const TYPE_SCALE: [string, string, string][] = [
   ['Small', 'var(--text-sm)', 'var(--font-body)'],
   ['Code', 'var(--text-sm)', 'var(--font-code)'],
 ]
+
+// Sample history for the graph demo (timestamps relative to page load)
+function sampleCommits(): Commit[] {
+  const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
+  const base = { repo_id: 'demo', branch_id: 'main', author_id: 'a', merge_parent_id: null as string | null }
+  return [
+    { ...base, id: 'c5f1a2b3c4d5', message: 'Tune quicksort pivot selection', created_at: ago(3), author: { id: 'a', name: 'Ada Lovelace', avatar_url: null }, parent_id: 'm4' },
+    { ...base, id: 'm4e7d6c5b4a3', message: 'Merge pull request "Memoize fibonacci" (feature/memoized-fib → main)', created_at: ago(95), merge_parent_id: 'f2', author: { id: 'b', name: 'Grace Hopper', avatar_url: null }, parent_id: 'c3' },
+    { ...base, id: 'c3a9b8c7d6e5', message: 'Add binary search example', created_at: ago(60 * 5), author: { id: 'a', name: 'Ada Lovelace', avatar_url: null }, parent_id: 'c1' },
+    { ...base, id: 'c1f0e9d8c7b6', message: 'Initial commit: fibonacci and quicksort', created_at: ago(60 * 24 * 9), author: { id: 'c', name: 'Linus Torvalds', avatar_url: null }, parent_id: null },
+  ]
+}
 
 const PEOPLE = [
   { id: '1', name: 'Ada Lovelace', live: true },
@@ -113,6 +127,7 @@ export default function StyleGuide() {
   const [loadingDemo, setLoadingDemo] = useState(false)
   const [listKey, setListKey] = useState(0)
   const [nameError, setNameError] = useState<string | null>('That name is already taken')
+  const [commits] = useState(sampleCommits)
 
   const runLoading = (e: React.MouseEvent<HTMLButtonElement>) => {
     const button = e.currentTarget
@@ -267,6 +282,12 @@ export default function StyleGuide() {
               </div>
             </Card>
           </div>
+        </Section>
+
+        <Section id="history" title="Commit history" description="The rail draws itself as you scroll. Fresh commits glow molten and cool to steel with age; merges bring in a second rail.">
+          <Card padding="sm">
+            <CommitGraph commits={commits} repoId="demo" />
+          </Card>
         </Section>
 
         <Section id="loading" title="Loading & empty states" description="Skeletons replace 'Loading...' text; the shimmer stops under reduced motion.">
