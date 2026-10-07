@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowRight, Bug, Compass, GitCommitHorizontal, GitFork, GitPullRequest, Lock, Search, Star } from 'lucide-react'
+import { ArrowRight, Bug, Compass, GitCommitHorizontal, GitFork, GitPullRequest, Search, Star } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useCommandPalette } from '../../contexts/CommandPalette'
 import { useStore } from '../../store/useStore'
 import { getActivity, getIssues, getPullRequests, getRepositories } from '../../lib/api'
 import type { ActivityItem, Issue, PullRequest } from '../../lib/api'
-import { Badge, Button, Card, EmptyState, Kbd, LinkButton, Skeleton } from '../../components/ui'
+import { Button, Card, EmptyState, Kbd, LinkButton, Skeleton } from '../../components/ui'
+import { RepoCard, RepoGrid } from '../../components/RepoCard/RepoCard'
 import { heatOf, timeAgo } from '../../lib/time'
 import { fadeUp, stagger } from '../../lib/motion'
 import styles from './Dashboard.module.css'
@@ -114,31 +115,9 @@ export default function Dashboard() {
               />
             </Card>
           ) : (
-            <motion.div className={styles.repoGrid} initial="hidden" animate="visible" variants={stagger(0.05)}>
-              {recentRepos.map((repo) => {
-                const hot = heatOf(repo.updated_at, now) === 'molten'
-                return (
-                  <motion.div key={repo.id} variants={fadeUp}>
-                    <Link to={`/repo/${repo.id}`} className={styles.repoLink}>
-                      <Card interactive className={styles.repo}>
-                        <div className={styles.repoTop}>
-                          <span className={`${styles.heatDot} ${hot ? styles.heatHot : ''}`} aria-hidden="true" />
-                          <span className={styles.repoName}>{repo.name}</span>
-                          {repo.is_private
-                            ? <Badge tone="neutral" icon={<Lock size={11} />}>private</Badge>
-                            : <Badge tone="steel">public</Badge>}
-                        </div>
-                        <p className={styles.repoDesc}>{repo.description || 'No description yet.'}</p>
-                        <div className={styles.repoMeta}>
-                          <span><Star size={13} /> {repo.stars_count || 0}</span>
-                          <span>Updated {timeAgo(repo.updated_at, now)}</span>
-                        </div>
-                      </Card>
-                    </Link>
-                  </motion.div>
-                )
-              })}
-            </motion.div>
+            <RepoGrid>
+              {recentRepos.map((repo) => <RepoCard key={repo.id} repo={repo} now={now} />)}
+            </RepoGrid>
           )}
         </section>
 

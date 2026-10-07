@@ -1,0 +1,37 @@
+/* Shared layout for browse pages: repositories, explore, starred, gists */
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.search {
+  flex: 1;
+  min-width: 220px;
+}
+
+.skeletonGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+  gap: var(--space-4);
+}
+
+.resultNote {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.resultNote strong { color: var(--color-text); }
+
+@media (max-width: 640px) {
+  .search { flex-basis: 100%; }
+}

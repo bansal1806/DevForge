@@ -1,128 +1,116 @@
-import { useEffect, useState, useMemo } from 'react'
-import { motion } from 'framer-motion'
-import { Link, useSearchParams } from 'react-router-dom'
-import { GitFork, Star, Search as SearchIcon } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { GitFork, Plus } from 'lucide-react'
 import { useStore } from '../../store/useStore'
-import { getRepositories } from '../../lib/api'
-import styles from '../shared/SharedPages.module.css'
+import { getRepositories, getErrorMessage } from '../../lib/api'
+import { Button, Card, EmptyState, PageHeader, SearchField, Segmented, Skeleton } from '../../components/ui'
+import { RepoCard, RepoGrid } from '../../components/RepoCard/RepoCard'
+import NewRepositoryModal from '../../components/Modals/NewRepositoryModal'
+import styles from '../shared/Browse.module.css'
 
-const itemVariants = {
-  hidden: { opacity: 0, y: 15 },
-  visible: (i: number) => ({ 
-    opacity: 1, 
-    y: 0, 
-    transition: { 
-      delay: i * 0.05, 
-      duration: 0.4, 
-      ease: [0.22, 1, 0.36, 1] as [number, number, number, number] 
-    } 
-  }),
-}
+type Visibility = 'all' | 'public' | 'private'
+type Sort = 'updated' | 'name' | 'stars'
 
 export default function Repositories() {
-  const { repositories, setRepositories, loading, setLoading, setError } = useStore()
+  const { repositories, setRepositories } = useStore()
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
-  const [localSearch, setLocalSearch] = useState(searchParams.get('search') || '')
-  const [filter, setFilter] = useState<'all' | 'public' | 'private'>('all')
+  const search = searchParams.get('search') || ''
+  const [visibility, setVisibility] = useState<Visibility>('all')
+  const [sort, setSort] = useState<Sort>('updated')
+  const [creating, setCreating] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
 
-  useEffect(() => {
-    setLoading(true)
+  const load = useCallback(() => {
     getRepositories()
-      .then(setRepositories)
-      .catch((err) => {
-        console.error(err)
-        setError('Failed to load repositories')
+      .then((data) => {
+        setRepositories(data)
+        setNow(Date.now())
+        setError(null)
       })
+      .catch((err) => setError(getErrorMessage(err, 'Failed to load repositories.')))
       .finally(() => setLoading(false))
-  }, [setRepositories, setLoading, setError])
+  }, [setRepositories])
 
-  const filteredRepos = useMemo(() => {
-    return repositories.filter(repo => {
-      const matchesSearch = repo.name.toLowerCase().includes(localSearch.toLowerCase()) || 
-                          (repo.description?.toLowerCase().includes(localSearch.toLowerCase()) ?? false)
-      const matchesFilter = filter === 'all' || 
-                          (filter === 'private' && repo.is_private) || 
-                          (filter === 'public' && !repo.is_private)
-      return matchesSearch && matchesFilter
-    })
-  }, [repositories, localSearch, filter])
+  useEffect(load, [load])
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value
-    setLocalSearch(val)
-    if (val) {
-      setSearchParams({ search: val })
-    } else {
-      setSearchParams({})
-    }
-  }
+  const setSearch = (value: string) => setSearchParams(value ? { search: value } : {}, { replace: true })
+
+  const counts = useMemo(() => ({
+    all: repositories.length,
+    public: repositories.filter((r) => !r.is_private).length,
+    private: repositories.filter((r) => r.is_private).length,
+  }), [repositories])
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return repositories
+      .filter((r) => visibility === 'all' || (visibility === 'private') === r.is_private)
+      .filter((r) => !q || r.name.toLowerCase().includes(q) || (r.description || '').toLowerCase().includes(q))
+      .sort((a, b) => sort === 'name' ? a.name.localeCompare(b.name)
+        : sort === 'stars' ? (b.stars_count || 0) - (a.stars_count || 0)
+        : new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+  }, [repositories, visibility, search, sort])
 
   return (
-    <div className={styles['page-shell']}>
-      <motion.div 
-        className={styles['page-header']} 
-        initial={{ opacity: 0, y: 20 }} 
-        animate={{ opacity: 1, y: 0 }} 
-        transition={{ duration: 0.5 }}
-      >
-        <h1 className={styles['page-title']}><GitFork size={24} /> Repositories</h1>
-        <p className={styles['page-subtitle']}>All of your repositories across every project.</p>
-      </motion.div>
+    <div className={styles.page}>
+      <PageHeader
+        icon={<GitFork size={26} />}
+        title="Repositories"
+        subtitle="Everything you own or collaborate on."
+        actions={<Button variant="primary" iconLeft={<Plus size={16} />} onClick={() => setCreating(true)}>New repository</Button>}
+      />
 
-      <div className={styles['filters-bar']}>
-        <div className={styles['filter-search']}>
-          <SearchIcon size={14} style={{ color: 'var(--text-muted)' }} />
-          <input 
-            placeholder="Find a repository..." 
-            value={localSearch}
-            onChange={handleSearchChange}
-          />
-        </div>
-        <button 
-          className={`${styles['filter-btn']} ${filter === 'all' ? styles['filter-btn--active'] : ''}`}
-          onClick={() => setFilter('all')}
-        >All</button>
-        <button 
-          className={`${styles['filter-btn']} ${filter === 'public' ? styles['filter-btn--active'] : ''}`}
-          onClick={() => setFilter('public')}
-        >Public</button>
-        <button 
-          className={`${styles['filter-btn']} ${filter === 'private' ? styles['filter-btn--active'] : ''}`}
-          onClick={() => setFilter('private')}
-        >Private</button>
+      <div className={styles.toolbar}>
+        <SearchField className={styles.search} label="Find a repository" placeholder="Find a repository…" value={search} onChange={setSearch} />
+        <Segmented
+          label="Visibility"
+          value={visibility}
+          onChange={setVisibility}
+          options={[
+            { value: 'all', label: 'All', count: loading ? '–' : counts.all },
+            { value: 'public', label: 'Public', count: loading ? '–' : counts.public },
+            { value: 'private', label: 'Private', count: loading ? '–' : counts.private },
+          ]}
+        />
+        <Segmented
+          label="Sort by"
+          value={sort}
+          onChange={setSort}
+          options={[{ value: 'updated', label: 'Recent' }, { value: 'name', label: 'Name' }, { value: 'stars', label: 'Stars' }]}
+        />
       </div>
 
       {loading ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading repositories...</div>
-      ) : filteredRepos.length === 0 ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No repositories found.</div>
+        <div className={styles.skeletonGrid} aria-busy="true">
+          {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} height={128} radius="var(--radius-lg)" />)}
+        </div>
+      ) : error ? (
+        <Card padding="none"><EmptyState title="Couldn’t load repositories" description={error} action={<Button size="sm" onClick={load}>Try again</Button>} /></Card>
+      ) : repositories.length === 0 ? (
+        <Card padding="none">
+          <EmptyState
+            title="No repositories yet"
+            description="Forge your first one — add files, run them, and open pull requests."
+            action={<Button variant="primary" iconLeft={<Plus size={14} />} onClick={() => setCreating(true)}>New repository</Button>}
+          />
+        </Card>
+      ) : visible.length === 0 ? (
+        <Card padding="none">
+          <EmptyState
+            title="No matches"
+            description={search ? `No ${visibility === 'all' ? '' : `${visibility} `}repositories match “${search.trim()}”.` : `You have no ${visibility} repositories.`}
+            action={<Button size="sm" variant="secondary" onClick={() => { setSearch(''); setVisibility('all') }}>Clear filters</Button>}
+          />
+        </Card>
       ) : (
-        filteredRepos.map((repo, i) => (
-          <motion.div key={repo.id} custom={i} variants={itemVariants} initial="hidden" animate="visible">
-            <Link to={`/repo/${repo.id}`} className={styles['list-item']}>
-              <div className={styles['list-item-icon']} style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
-                <GitFork size={18} />
-              </div>
-              <div className={styles['list-item-content']}>
-                <div className={styles['list-item-title']}>{repo.name}</div>
-                <div className={styles['list-item-desc']}>{repo.description || 'No description provided.'}</div>
-                <div className={styles['list-item-meta']}>
-                  <span className={styles['list-item-meta-tag']}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#3178c6', display: 'inline-block' }} />
-                    TypeScript
-                  </span>
-                  <span className={styles['list-item-meta-tag']}><Star size={12} /> 0</span>
-                </div>
-              </div>
-              <div className={styles['list-item-right']}>
-                <span className={`${styles['list-item-badge']} ${styles[`list-item-badge--${repo.is_private ? 'private' : 'public'}`]}`}>
-                  {repo.is_private ? 'private' : 'public'}
-                </span>
-              </div>
-            </Link>
-          </motion.div>
-        ))
+        <RepoGrid key={`${visibility}-${sort}`}>
+          {visible.map((repo) => <RepoCard key={repo.id} repo={repo} now={now} />)}
+        </RepoGrid>
       )}
+
+      <NewRepositoryModal isOpen={creating} onClose={() => setCreating(false)} onSuccess={load} />
     </div>
   )
 }

@@ -2,8 +2,7 @@ import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Search } from 'lucide-react'
-import { Card, EmptyState, Skeleton } from '../ui'
+import { Card, EmptyState, PageHeader, SearchField, Segmented, Skeleton } from '../ui'
 import { fadeUp, stagger } from '../../lib/motion'
 import styles from './WorkList.module.css'
 
@@ -53,32 +52,22 @@ export function WorkList({ title, subtitle, icon, filters, items, loading, error
 
   return (
     <div className={styles.page}>
-      <motion.header className={styles.header} initial="hidden" animate="visible" variants={stagger(0.05)}>
-        <motion.h1 variants={fadeUp} className={styles.title}>{icon} {title}</motion.h1>
-        <motion.p variants={fadeUp} className={styles.subtitle}>{subtitle}</motion.p>
-      </motion.header>
+      <PageHeader icon={icon} title={title} subtitle={subtitle} />
 
       <div className={styles.toolbar}>
-        <div className={styles.filters} role="radiogroup" aria-label="Filter by status">
-          {filters.map((f) => (
-            <button
-              key={f.status}
-              role="radio"
-              aria-checked={status === f.status}
-              className={`${styles.filter} ${status === f.status ? styles.filterActive : ''}`}
-              onClick={() => setStatus(f.status)}
-            >
-              {status === f.status && <motion.span layoutId={`${title}-filter`} className={styles.filterPill} transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
-              <span className={styles.filterLabel}>{f.label}</span>
-              <span className={styles.filterCount}>{loading ? '–' : counts[f.status] || 0}</span>
-            </button>
-          ))}
-        </div>
-        <label className={styles.search}>
-          <Search size={15} aria-hidden="true" />
-          <span className="sr-only">Search {title.toLowerCase()}</span>
-          <input type="search" placeholder="Filter by title, repository or author…" value={query} onChange={(e) => setQuery(e.target.value)} />
-        </label>
+        <Segmented
+          label="Filter by status"
+          value={status}
+          onChange={setStatus}
+          options={filters.map((f) => ({ value: f.status, label: f.label, count: loading ? '–' : counts[f.status] || 0 }))}
+        />
+        <SearchField
+          className={styles.search}
+          label={`Search ${title.toLowerCase()}`}
+          placeholder="Filter by title, repository or author…"
+          value={query}
+          onChange={setQuery}
+        />
       </div>
 
       <Card padding="none">

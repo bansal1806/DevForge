@@ -15,3 +15,5 @@ export { Tabs, Tooltip, Avatar, AvatarStack, EmptyState, AnvilArt, ThemeToggle }
 export type { TabItem } from './Composite'
 export { Toaster } from './Toaster'
 export { toast } from 'sonner'
+export { PageHeader, Segmented, SearchField } from './Controls'
+export type { SegmentOption } from './Controls'

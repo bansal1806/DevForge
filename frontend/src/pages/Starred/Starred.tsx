@@ -1,73 +1,65 @@
-import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import { Link } from 'react-router-dom'
-import { Star, GitFork } from 'lucide-react'
-import { getStarredRepos } from '../../lib/api'
+import { useEffect, useMemo, useState } from 'react'
+import { Compass, Star } from 'lucide-react'
+import { getStarredRepos, getErrorMessage } from '../../lib/api'
 import type { Repository } from '../../lib/api'
-import styles from '../shared/SharedPages.module.css'
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 15 },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: {
-      delay: i * 0.05,
-      duration: 0.4,
-      ease: [0.22, 1, 0.36, 1] as [number, number, number, number]
-    }
-  }),
-}
+import { Card, EmptyState, LinkButton, PageHeader, SearchField, Skeleton } from '../../components/ui'
+import { RepoCard, RepoGrid } from '../../components/RepoCard/RepoCard'
+import styles from '../shared/Browse.module.css'
 
 export default function Starred() {
-  const [starredRepos, setStarredRepos] = useState<Repository[]>([])
+  const [repos, setRepos] = useState<Repository[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     getStarredRepos()
-      .then(setStarredRepos)
-      .catch(console.error)
+      .then((data) => {
+        setRepos(data)
+        setNow(Date.now())
+      })
+      .catch((err) => setError(getErrorMessage(err, 'Could not load your starred repositories.')))
       .finally(() => setLoading(false))
   }, [])
 
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return q
+      ? repos.filter((r) => `${r.name} ${r.owner?.name || ''} ${r.description || ''}`.toLowerCase().includes(q))
+      : repos
+  }, [repos, search])
+
   return (
-    <div className={styles['page-shell']}>
-      <motion.div
-        className={styles['page-header']}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        <h1 className={styles['page-title']}><Star size={24} /> Starred</h1>
-        <p className={styles['page-subtitle']}>Repositories you've starred for quick access.</p>
-      </motion.div>
+    <div className={styles.page}>
+      <PageHeader icon={<Star size={26} />} title="Starred" subtitle="Repositories you’ve starred, one click away." />
+
+      {repos.length > 3 && (
+        <div className={styles.toolbar}>
+          <SearchField className={styles.search} label="Filter starred repositories" placeholder="Filter starred…" value={search} onChange={setSearch} />
+        </div>
+      )}
 
       {loading ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading starred repositories...</div>
-      ) : starredRepos.length === 0 ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          You haven't starred any repositories yet. Find something you like on the Explore page and hit the star.
+        <div className={styles.skeletonGrid} aria-busy="true">
+          {[0, 1, 2].map((i) => <Skeleton key={i} height={128} radius="var(--radius-lg)" />)}
         </div>
+      ) : error ? (
+        <Card padding="none"><EmptyState title="Couldn’t load starred repositories" description={error} /></Card>
+      ) : repos.length === 0 ? (
+        <Card padding="none">
+          <EmptyState
+            title="No stars yet"
+            description="Find something you like on Explore and hit the star — it’ll live here."
+            action={<LinkButton to="/explore" variant="primary" size="sm"><Compass size={14} /> Explore repositories</LinkButton>}
+          />
+        </Card>
+      ) : visible.length === 0 ? (
+        <Card padding="none"><EmptyState title="No matches" description={`None of your stars match “${search.trim()}”.`} /></Card>
       ) : (
-        starredRepos.map((repo, i) => (
-          <motion.div key={repo.id} custom={i} variants={itemVariants} initial="hidden" animate="visible">
-            <Link to={`/repo/${repo.id}`} className={styles['list-item']}>
-              <div className={styles['list-item-icon']} style={{ background: 'rgba(234, 179, 8, 0.1)', color: '#eab308' }}>
-                <GitFork size={18} />
-              </div>
-              <div className={styles['list-item-content']}>
-                <div className={styles['list-item-title']}>
-                  {repo.owner?.name ? `${repo.owner.name}/` : ''}{repo.name}
-                </div>
-                <div className={styles['list-item-desc']}>{repo.description || 'No description provided.'}</div>
-                <div className={styles['list-item-meta']}>
-                  <span className={styles['list-item-meta-tag']}><Star size={12} /> {repo.stars_count || 0}</span>
-                  <span className={styles['list-item-meta-tag']}>Updated {new Date(repo.updated_at).toLocaleDateString()}</span>
-                </div>
-              </div>
-            </Link>
-          </motion.div>
-        ))
+        <RepoGrid>
+          {visible.map((repo) => <RepoCard key={repo.id} repo={{ ...repo, starred_by_me: true }} now={now} showOwner />)}
+        </RepoGrid>
       )}
     </div>
   )
