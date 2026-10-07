@@ -1,56 +1,29 @@
 .layout {
   min-height: 100vh;
-  background: var(--bg-deep);
+  background: var(--color-bg);
 }
 
-.layout-content {
+.content {
+  position: relative;
+  z-index: 1;
   margin-left: var(--sidebar-width);
   margin-top: var(--header-height);
-  padding: var(--spacing-xl);
+  padding: var(--space-8);
   min-height: calc(100vh - var(--header-height));
-  position: relative;
 }
 
-/* Ambient background glow */
-.layout-ambient {
+/* One soft ember glow, top-right — warmth without noise */
+.ambient {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  pointer-events: none;
+  inset: 0;
   z-index: 0;
-  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(900px 480px at 100% 0%, var(--color-ember-soft), transparent 65%);
 }
 
-.layout-ambient-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(120px);
-  opacity: 0.08;
-}
-
-.layout-ambient-orb--blue {
-  width: 600px;
-  height: 600px;
-  background: #3b82f6;
-  top: -200px;
-  right: -100px;
-}
-
-.layout-ambient-orb--purple {
-  width: 500px;
-  height: 500px;
-  background: #8b5cf6;
-  bottom: -200px;
-  left: 200px;
-}
-
-.layout-ambient-orb--emerald {
-  width: 400px;
-  height: 400px;
-  background: #10b981;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+@media (max-width: 900px) {
+  .content {
+    margin-left: 0;
+    padding: var(--space-5) var(--space-4);
+  }
 }

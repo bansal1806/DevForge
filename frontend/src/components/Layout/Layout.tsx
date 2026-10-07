@@ -7,21 +7,15 @@ import styles from './Layout.module.css'
 export default function Layout() {
   return (
     <div className={styles.layout}>
-      {/* Ambient background glow orbs */}
-      <div className={styles['layout-ambient']}>
-        <div className={`${styles['layout-ambient-orb']} ${styles['layout-ambient-orb--blue']}`} />
-        <div className={`${styles['layout-ambient-orb']} ${styles['layout-ambient-orb--purple']}`} />
-        <div className={`${styles['layout-ambient-orb']} ${styles['layout-ambient-orb--emerald']}`} />
-      </div>
-
+      <div className={styles.ambient} aria-hidden="true" />
       <Navbar />
       <Sidebar />
-
       <motion.main
-        className={styles['layout-content']}
-        initial={{ opacity: 0, y: 20 }}
+        id="main"
+        className={styles.content}
+        initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.3, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }}
+        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
       >
         <Outlet />
       </motion.main>
