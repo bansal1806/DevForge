@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ChevronLeft, GitCommitHorizontal, GitMerge, GitBranch, User, Clock } from 'lucide-react'
+import { ChevronLeft, GitCommitHorizontal, GitMerge, GitBranch, Clock, Copy } from 'lucide-react'
 import { getCommitDetail, getErrorMessage, type CommitDetail as CommitDetailData } from '../../lib/api'
 import DiffViewer from '../../components/DiffViewer/DiffViewer'
-import styles from '../PullRequests/PRDetail.module.css'
-import issueStyles from '../Issues/IssueDetail.module.css'
+import { Avatar, EmptyState, IconButton, LinkButton, Skeleton, SkeletonText, toast } from '../../components/ui'
+import { fadeUp, stagger } from '../../lib/motion'
+import { timeAgo } from '../../lib/time'
+import styles from '../shared/Detail.module.css'
 
 export default function CommitDetail() {
   const { repoId, commitId } = useParams<{ repoId: string; commitId: string }>()
   const [data, setData] = useState<CommitDetailData | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [now] = useState(() => Date.now())
 
   useEffect(() => {
     if (!repoId || !commitId) return
@@ -23,24 +26,25 @@ export default function CommitDetail() {
 
   if (error) {
     return (
-      <div className={styles['pr-container']}>
-        <div style={{ padding: '100px', textAlign: 'center' }}>
-          <h2 style={{ color: 'white', marginBottom: '16px' }}>{error}</h2>
-          <Link to={`/repo/${repoId}`} className="btn-ghost" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-            <ChevronLeft size={16} /> Back to Repository
-          </Link>
-        </div>
+      <div className={styles.page}>
+        <EmptyState
+          title={error}
+          description="The commit may belong to a branch you can't see, or the link is mistyped."
+          action={<LinkButton to={`/repo/${repoId}`} variant="secondary" size="sm"><ChevronLeft size={14} /> Back to repository</LinkButton>}
+        />
       </div>
     )
   }
 
   if (!data) {
     return (
-      <div className={styles['pr-container']}>
-        <div style={{ padding: '100px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          <div className="spinner" style={{ marginBottom: '20px' }}></div>
-          Loading commit...
+      <div className={styles.page} aria-busy="true">
+        <Skeleton width={140} height={14} />
+        <div className={styles.header}>
+          <Skeleton width="55%" height={34} />
+          <Skeleton width={300} height={20} />
         </div>
+        <SkeletonText lines={5} />
       </div>
     )
   }
@@ -48,52 +52,61 @@ export default function CommitDetail() {
   const { commit, diff } = data
   const isMerge = !!commit.merge_parent_id
 
+  const copySha = async () => {
+    try {
+      await navigator.clipboard.writeText(commit.id)
+      toast.success('Commit id copied')
+    } catch {
+      toast.error('Could not copy — your browser blocked clipboard access.')
+    }
+  }
+
   return (
-    <motion.div
-      className={styles['pr-container']}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-    >
-      <div style={{ marginBottom: '24px' }}>
-        <Link to={`/repo/${repoId}`} className={issueStyles['meta-text']} style={{ display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}>
-          <ChevronLeft size={16} /> Back to repository
-        </Link>
-      </div>
+    <motion.div className={styles.page} initial="hidden" animate="visible" variants={stagger(0.05)}>
+      <motion.div variants={fadeUp}>
+        <Link to={`/repo/${repoId}`} className={styles.back}><ChevronLeft size={16} /> Back to repository</Link>
+      </motion.div>
 
-      <header className={styles['pr-header']}>
-        <h1 className={issueStyles['issue-title']} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {isMerge ? <GitMerge size={24} /> : <GitCommitHorizontal size={24} />}
-          {commit.message}
-        </h1>
-
-        <div className={styles['pr-meta']} style={{ flexWrap: 'wrap', gap: '16px' }}>
-          <span className={issueStyles['meta-text']} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <User size={14} /> {commit.author?.name || 'Deleted user'}
+      <motion.header variants={fadeUp} className={styles.header}>
+        <div className={styles.titleRow}>
+          <h1 className={styles.title}>{commit.message}</h1>
+          <div className={styles.titleActions}>
+            <IconButton label="Copy commit id" icon={<Copy size={15} />} variant="secondary" size="sm" onClick={copySha} />
+          </div>
+        </div>
+        <div className={styles.meta}>
+          <span className={`${styles.state} ${isMerge ? styles.state_merged : styles.state_open}`}>
+            {isMerge ? <GitMerge size={15} /> : <GitCommitHorizontal size={15} />} {isMerge ? 'merge' : 'commit'}
           </span>
-          <span className={issueStyles['meta-text']} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Clock size={14} /> {new Date(commit.created_at).toLocaleString()}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Avatar name={commit.author?.name} src={commit.author?.avatar_url} size={20} />
+            {commit.author_id ? <Link to={`/profile/${commit.author_id}`}>{commit.author?.name || 'Deleted user'}</Link> : 'Deleted user'}
+          </span>
+          <span title={new Date(commit.created_at).toLocaleString()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Clock size={14} /> {timeAgo(commit.created_at, now)}
           </span>
           {commit.branch && (
-            <span className={styles['branch-name']} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <span className={styles.branch} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <GitBranch size={12} /> {commit.branch.name}
             </span>
           )}
-          <span className={issueStyles['meta-text']} style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+          <code className={styles.branch}>
             {commit.id.slice(0, 7)}
-            {commit.parent_id && <> · parent {commit.parent_id.slice(0, 7)}</>}
+            {commit.parent_id && <> ← {commit.parent_id.slice(0, 7)}</>}
             {commit.merge_parent_id && <> + {commit.merge_parent_id.slice(0, 7)}</>}
-          </span>
+          </code>
         </div>
-      </header>
+      </motion.header>
 
-      <p className={issueStyles['meta-text']} style={{ margin: '0 0 16px' }}>
+      <motion.p variants={fadeUp} className={styles.sideMuted}>
         {commit.parent_id
           ? `Changes compared with the previous commit on this branch${isMerge ? ' (the merge brought these in)' : ''}.`
           : 'Initial commit — every file is new.'}
-      </p>
+      </motion.p>
 
-      <DiffViewer diff={diff} />
+      <motion.div variants={fadeUp}>
+        <DiffViewer diff={diff} />
+      </motion.div>
     </motion.div>
   )
 }

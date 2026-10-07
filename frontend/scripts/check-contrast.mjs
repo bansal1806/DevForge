@@ -66,6 +66,7 @@ const checks = [
   ['--color-info', ['--color-surface', '--color-info-soft'], TEXT],
   ['--color-ember-text', ['--color-ember-soft'], TEXT],
   ['--color-steel', ['--color-surface', '--color-steel-soft'], TEXT],
+  ['--color-bg', ['--color-success', '--color-steel', '--color-violet'], TEXT, 'state pills'],
   ['--color-focus', ['--color-bg', '--color-surface'], UI],
   ['--color-border-strong', ['--color-surface'], 1.4, 'decorative divider'],
 ];
