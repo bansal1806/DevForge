@@ -1,17 +1,25 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import type { Variants } from 'framer-motion'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
+import type { OnMount } from '@monaco-editor/react'
+import ReactMarkdown from 'react-markdown'
 import { useRepoRealtime, type FileChange } from '../../lib/useRepoRealtime'
-import { useDialog, toast, EmptyState, Skeleton } from '../../components/ui'
+import {
+  AvatarStack, Badge, Button, Card, EmptyState, IconButton, Input, Modal, Skeleton, Spinner, Tabs, toast, useDialog,
+} from '../../components/ui'
 import { CommitGraph } from '../../components/CommitGraph/CommitGraph'
 import { TerminalOutput } from '../../components/TerminalOutput/TerminalOutput'
+import { FileTree } from '../../components/FileTree/FileTree'
+import { InsightsPanel } from './InsightsPanel'
 import { sparkBurst } from '../../lib/sparks'
 import { useRegisterCommands } from '../../contexts/CommandPalette'
 import type { PaletteCommand } from '../../contexts/CommandPalette'
 import { useStore } from '../../store/useStore'
 import { useAuth } from '../../contexts/AuthContext'
+import { useTheme } from '../../contexts/ThemeContext'
+import { fileColor, isRunnable, languageLabel, monacoLanguage } from '../../lib/fileLang'
+import { timeAgo } from '../../lib/time'
 import {
   getRepositoryById,
   getBranches,
@@ -32,35 +40,9 @@ import {
 } from '../../lib/api'
 import type { FileNode, Issue, PullRequest, ExecutionResult, ExecutionStat, Commit } from '../../lib/api'
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie
-} from 'recharts'
-import {
-  Code2,
-  GitPullRequest,
-  Bug,
-  Shield,
-  Settings,
-  GitBranch,
-  ChevronDown,
-  ChevronRight,
-  Folder,
-  FileText,
-  Star,
-  Terminal,
-  Loader2,
-  Play,
-  Save,
-  GitCommitHorizontal,
-  X,
-  Plus,
-  Sparkles,
-  Users,
-  Activity,
-  LineChart as LineChartIcon,
-  Clock,
-  PieChart as PieChartIcon,
-  History,
-  FilePlus
+  Bug, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Code2, FilePlus, FileText, GitBranch,
+  GitCommitHorizontal, GitMerge, GitPullRequest, History, LineChart as LineChartIcon, Loader2, Lock, Play,
+  Plus, Save, Settings, Sparkles, Star, Trash2, Users, X,
 } from 'lucide-react'
 import styles from './RepoView.module.css'
 import NewIssueModal from '../../components/Modals/NewIssueModal'
@@ -74,25 +56,6 @@ const tabDefs = [
   { icon: LineChartIcon, label: 'Insights' },
   { icon: Settings, label: 'Settings' },
 ]
-
-const containerVariants: Variants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.04 } },
-}
-
-const itemVariants: Variants = {
-  hidden: { opacity: 0, y: 10 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.3, ease: 'easeOut' } },
-}
-
-interface TreeNode {
-  name: string;
-  path: string;
-  isFolder: boolean;
-  children: TreeNode[];
-  id?: string;
-  updated_at?: string;
-}
 
 export default function RepoView() {
   const { id } = useParams()
@@ -136,6 +99,11 @@ export default function RepoView() {
   const [repoCommits, setRepoCommits] = useState<Commit[]>([])
   const [commitsLoading, setCommitsLoading] = useState(false)
   const [commitsVersion, setCommitsVersion] = useState(0)
+  const [openPaths, setOpenPaths] = useState<string[]>([])
+  const [cursor, setCursor] = useState<{ line: number, column: number } | null>(null)
+  // Captured once per mount so relative times keep render pure
+  const [now] = useState(() => Date.now())
+  const { resolved: resolvedTheme } = useTheme()
 
   const { user } = useAuth()
   const canWrite = activeRepo?.permission === 'write' || activeRepo?.permission === 'admin'
@@ -220,18 +188,8 @@ export default function RepoView() {
       }
     }
   }
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['']))
   const branchRef = useRef<HTMLDivElement>(null)
 
-  const toggleFolder = (path: string) => {
-    const newExpanded = new Set(expandedFolders)
-    if (newExpanded.has(path)) {
-      newExpanded.delete(path)
-    } else {
-      newExpanded.add(path)
-    }
-    setExpandedFolders(newExpanded)
-  }
 
   // Save the active file's content to the current branch
   const handleSave = async () => {
@@ -335,6 +293,7 @@ export default function RepoView() {
       const created = updated.find(f => f.path === file.path)
       if (created) {
         setActiveFile(created)
+        setOpenPaths((paths) => (paths.includes(created.path) ? paths : [...paths, created.path]))
         setIsDirty(false)
       }
       toast.success(`Created ${file.path}.`)
@@ -453,6 +412,8 @@ export default function RepoView() {
       if (cancelled) return
       setFiles(fileData)
       setActiveFile(null)
+      setOpenPaths([])
+      setCursor(null)
       setIsDirty(false)
     }).catch((err) => console.error('Failed to load files:', err))
     return () => { cancelled = true }
@@ -502,108 +463,6 @@ export default function RepoView() {
     }
   }
 
-  const monacoLanguage = (() => {
-    const ext = activeFile?.path.split('.').pop()?.toLowerCase()
-    switch (ext) {
-      case 'ts': case 'tsx': return 'typescript'
-      case 'js': case 'jsx': case 'mjs': case 'cjs': return 'javascript'
-      case 'py': return 'python'
-      case 'cpp': case 'cc': case 'cxx': case 'h': case 'hpp': return 'cpp'
-      case 'json': return 'json'
-      case 'md': return 'markdown'
-      case 'css': return 'css'
-      case 'html': return 'html'
-      case 'yml': case 'yaml': return 'yaml'
-      case 'sql': return 'sql'
-      case 'sh': return 'shell'
-      default: return 'plaintext'
-    }
-  })()
-
-  // Build file tree
-  const buildTree = (files: FileNode[]): TreeNode[] => {
-    const root: TreeNode[] = []
-    files.forEach(file => {
-      const parts = file.path.split('/')
-      let currentLevel = root
-      let currentPath = ''
-
-      parts.forEach((part, index) => {
-        currentPath = currentPath ? `${currentPath}/${part}` : part
-        const isLast = index === parts.length - 1
-        let node = currentLevel.find(n => n.name === part)
-
-        if (!node) {
-          node = {
-            name: part,
-            path: currentPath,
-            isFolder: !isLast,
-            children: [],
-            id: isLast ? file.id : undefined,
-            updated_at: isLast ? file.updated_at : undefined
-          }
-          currentLevel.push(node)
-        }
-        currentLevel = node.children
-      })
-    })
-    return root.sort((a, b) => {
-      if (a.isFolder === b.isFolder) return a.name.localeCompare(b.name)
-      return a.isFolder ? -1 : 1
-    })
-  }
-
-  const renderTree = (nodes: TreeNode[], depth = 0) => {
-    return nodes.map(node => {
-      const isExpanded = expandedFolders.has(node.path)
-      const isActive = activeFile?.id === node.id
-
-      return (
-        <div key={node.path}>
-          <motion.div
-            className={`${styles['file-tree-item']} ${isActive ? styles['file-tree-item--active'] : ''}`}
-            style={{ paddingLeft: `${depth * 12 + 12}px`, cursor: 'pointer' }}
-            onClick={async () => {
-              if (node.isFolder) {
-                toggleFolder(node.path)
-              } else {
-                const file = files.find(f => f.id === node.id)
-                if (file && file.id !== activeFile?.id && (await confirmDiscard())) {
-                  setActiveFile(file)
-                  setIsDirty(false)
-                  setAIExplanation(null) // Reset AI box for NEW file
-                }
-              }
-            }}
-            variants={itemVariants}
-          >
-            <div className={styles['file-tree-item-main']}>
-              {node.isFolder ? (
-                <>
-                  {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  <Folder size={16} className={`${styles['file-tree-item-icon']} ${styles['file-tree-item-icon--folder']}`} />
-                </>
-              ) : (
-                <FileText size={16} className={styles['file-tree-item-icon']} />
-              )}
-              <span className={`${styles['file-tree-item-name']} ${node.isFolder ? styles['file-tree-item-name--folder'] : ''}`}>
-                {node.name}
-              </span>
-            </div>
-            {!node.isFolder && (
-              <>
-                <span className={styles['file-tree-item-msg']}>Updates</span>
-                <span className={styles['file-tree-item-time']}>{node.updated_at ? new Date(node.updated_at).toLocaleDateString() : ''}</span>
-              </>
-            )}
-          </motion.div>
-          {node.isFolder && isExpanded && (
-            <div>{renderTree(node.children, depth + 1)}</div>
-          )}
-        </div>
-      )
-    })
-  }
 
   // Ctrl/Cmd+S saves the open file (and never triggers the browser's save dialog)
   const saveRef = useRef(handleSave)
@@ -660,613 +519,488 @@ export default function RepoView() {
   ]
   useRegisterCommands(activeRepo ? `In ${activeRepo.name}` : 'This repository', repoCommands)
 
-  const treeData = buildTree(files)
+  // ---------------------------------------------------------------------
+  // Editor tabs: several files can be open, one buffer holds unsaved edits
+  // ---------------------------------------------------------------------
+  const readme = files.find((f) => f.path.toLowerCase() === 'readme.md')
+
+  const openFile = async (file: FileNode) => {
+    if (file.path === activeFile?.path) return
+    if (!(await confirmDiscard())) return
+    setActiveFile(file)
+    setIsDirty(false)
+    setAIExplanation(null)
+    setCursor(null)
+    setOpenPaths((paths) => (paths.includes(file.path) ? paths : [...paths, file.path]))
+  }
+
+  const closeTab = async (path: string) => {
+    if (path === activeFile?.path) {
+      if (!(await confirmDiscard())) return
+      const index = openPaths.indexOf(path)
+      const remaining = openPaths.filter((p) => p !== path)
+      const nextPath = remaining[Math.min(index, remaining.length - 1)]
+      setActiveFile((nextPath && files.find((f) => f.path === nextPath)) || null)
+      setIsDirty(false)
+      setCursor(null)
+    }
+    setOpenPaths((paths) => paths.filter((p) => p !== path))
+  }
+
+  const onEditorMount: OnMount = (editor) => {
+    editor.onDidChangeCursorPosition((e) => setCursor({ line: e.position.lineNumber, column: e.position.column }))
+  }
+
+  const openIssueCount = repoIssues.filter((i) => i.status === 'open').length
+  const openPrCount = repoPRs.filter((p) => p.status === 'open').length
+  const visibleTabs = tabDefs.filter((tab) => tab.label !== 'Settings' || isOwner)
+  const others = activeUsers.filter((u) => u.id !== user?.id)
+  const runnable = isRunnable(activeFile?.path)
 
   return (
-    <div className={styles['repo-view']}>
-      {/* Header */}
-      <motion.div
-        className={styles['repo-view-header']}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }}
-      >
-        <div className={styles['repo-view-header-top']}>
-          <div className={styles['repo-view-breadcrumb']}>
-            <Link to="/dashboard">Developer</Link> / <span style={{ color: 'var(--accent-neon)', fontWeight: 600 }}>{activeRepo?.name || id}</span>
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <div className={styles.headerMain}>
+          <div className={styles.crumbs}>
+            {activeRepo?.owner_id
+              ? <Link to={`/profile/${activeRepo.owner_id}`}>{activeRepo.owner?.name || 'owner'}</Link>
+              : <span>…</span>}
+            <span aria-hidden="true">/</span>
+            <h1 className={styles.repoName}>{activeRepo?.name || <Skeleton width={160} height={24} />}</h1>
+            {activeRepo && (
+              activeRepo.is_private
+                ? <Badge tone="neutral" icon={<Lock size={11} />}>private</Badge>
+                : <Badge tone="steel">public</Badge>
+            )}
           </div>
-
-          <div className={styles['presence-indicator']}>
-            <Users size={16} />
-            <div className={styles['presence-stack']}>
-              {activeUsers.map(user => (
-                <div
-                  key={user.id}
-                  className={styles['presence-avatar']}
-                  style={{ backgroundColor: user.color }}
-                  title={user.name}
-                >
-                  {user.name.charAt(0).toUpperCase()}
-                </div>
-              ))}
-              {activeUsers.length === 0 && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Only you</span>}
-            </div>
-          </div>
+          {activeRepo?.description && <p className={styles.description}>{activeRepo.description}</p>}
         </div>
 
-        <h1 className={styles['repo-view-title']}>
-          {activeRepo?.name || 'Loading repository...'}
-          <span className={styles['repo-view-visibility']}>{activeRepo?.is_private ? 'Private' : 'Public'}</span>
-        </h1>
-        <p className={styles['repo-view-desc']}>
-          {activeRepo?.description || 'No description provided.'}
-        </p>
-      </motion.div>
-
-      {/* Tabs */}
-      <motion.div
-        className={styles['repo-tabs']}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.4, delay: 0.15 }}
-      >
-        {tabDefs.filter((tab) => tab.label !== 'Settings' || isOwner).map((tab) => {
-          const badge =
-            tab.label === 'Issues' ? repoIssues.filter(i => i.status === 'open').length :
-            tab.label === 'Pull Requests' ? repoPRs.filter(p => p.status === 'open').length :
-            null
-          return (
-            <button
-              key={tab.label}
-              className={`${styles['repo-tab']} ${activeTab === tab.label ? styles['repo-tab--active'] : ''}`}
-              onClick={() => setActiveTab(tab.label)}
-            >
-              <tab.icon size={16} />
-              {tab.label}
-              {badge !== null && badge > 0 && <span className={styles['repo-tab-badge']}>{badge}</span>}
-            </button>
-          )
-        })}
-      </motion.div>
-
-      {/* Main Layout */}
-      <div className={styles['repo-layout']}>
-        {/* Left: Branch + File Tree */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-        >
-          {/* Branch Bar */}
-          <div className={styles['branch-bar']}>
-            <div style={{ position: 'relative' }} ref={branchRef}>
-              <button
-                className={styles['branch-selector']}
-                onClick={() => setIsBranchOpen(!isBranchOpen)}
-              >
-                <GitBranch size={14} />
-                {activeBranch?.name || 'main'}
-                <ChevronDown size={14} />
-              </button>
-
-              <AnimatePresence>
-                {isBranchOpen && (
-                  <motion.div
-                    className="dropdown-menu"
-                    style={{ left: 0, right: 'auto', transformOrigin: 'top left', minWidth: '180px' }}
-                    initial={{ opacity: 0, scale: 0.95, y: -5 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: -5 }}
-                  >
-                    <div style={{ padding: '8px 12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Switch branches</div>
-                    <div className="dropdown-divider" />
-                    {branches.map((b) => (
-                      <button
-                        key={b.id}
-                        className={`dropdown-item ${activeBranch?.id === b.id ? 'active' : ''}`}
-                        onClick={async () => {
-                          setIsBranchOpen(false)
-                          if (b.id !== activeBranch?.id && (await confirmDiscard())) setActiveBranch(b)
-                        }}
-                      >
-                        {b.name} {b.is_default && '(default)'}
-                      </button>
-                    ))}
-                    {branches.length === 0 && <div style={{ padding: '8px 12px', fontSize: '0.8rem', color: 'var(--text-muted)'}}>No branches found.</div>}
-                    {canWrite && (
-                      <>
-                        <div className="dropdown-divider" />
-                        <button className="dropdown-item" onClick={handleNewBranch}>
-                          + New branch
-                        </button>
-                      </>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {canWrite && (
-              <div className={styles['branch-bar-actions']}>
-                <motion.button className="btn-ghost" whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={handleNewFile}>
-                  <Plus size={14} /> New file
-                </motion.button>
-                <motion.button className="btn-ghost" whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => setShowCommitBox(!showCommitBox)}>
-                  <GitCommitHorizontal size={14} /> Commit
-                </motion.button>
-              </div>
+        <div className={styles.headerActions}>
+          <div className={styles.presence} aria-live="polite">
+            {others.length > 0 ? (
+              <>
+                <AvatarStack people={others.map((u) => ({ id: u.id, name: u.name, live: true }))} max={4} size={28} />
+                <span className={styles.presenceText}>{others.length} here now</span>
+              </>
+            ) : (
+              <span className={styles.presenceText}><Users size={14} /> Only you</span>
             )}
           </div>
+          <Button
+            ref={starButtonRef}
+            onClick={handleToggleStar}
+            disabled={isStarring || !activeRepo}
+            iconLeft={<Star size={15} fill={activeRepo?.starred_by_me ? 'currentColor' : 'none'} className={activeRepo?.starred_by_me ? styles.starred : undefined} />}
+            aria-pressed={!!activeRepo?.starred_by_me}
+          >
+            {activeRepo?.starred_by_me ? 'Starred' : 'Star'}
+            <span className={styles.starCount}>{activeRepo?.stars_count ?? 0}</span>
+          </Button>
+        </div>
+      </header>
 
-          {/* Commit Box */}
-          <AnimatePresence>
-            {showCommitBox && canWrite && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                style={{ display: 'flex', gap: '8px', padding: '10px 0', alignItems: 'center' }}
-              >
-                <input
-                  className={styles['settings-input']}
-                  style={{ flex: 1 }}
-                  placeholder="Commit message (e.g. Add sorting to leaderboard)"
-                  value={commitMessage}
-                  onChange={(e) => setCommitMessage(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleCommit() }}
-                />
-                <motion.button
-                  ref={commitButtonRef}
-                  className="btn-ghost"
-                  whileHover={{ scale: 1.04 }}
-                  whileTap={{ scale: 0.96 }}
-                  onClick={handleCommit}
-                  disabled={isCommitting || !commitMessage.trim()}
+      <Tabs
+        label="Repository sections"
+        value={activeTab}
+        onChange={setActiveTab}
+        items={visibleTabs.map((tab) => ({
+          id: tab.label,
+          label: tab.label,
+          icon: <tab.icon size={15} />,
+          count: tab.label === 'Issues' ? openIssueCount : tab.label === 'Pull Requests' ? openPrCount : undefined,
+        }))}
+      />
+
+      {activeTab === 'Code' && (
+        <div className={styles.workspace}>
+          <aside className={styles.explorer} aria-label="Explorer">
+            <div className={styles.explorerHead}>
+              <div className={styles.branchWrap} ref={branchRef}>
+                <button
+                  className={styles.branchButton}
+                  onClick={() => setIsBranchOpen(!isBranchOpen)}
+                  aria-haspopup="menu"
+                  aria-expanded={isBranchOpen}
                 >
-                  {isCommitting ? <Loader2 size={14} className="animate-spin" /> : <GitCommitHorizontal size={14} />}
-                  Commit to {activeBranch?.name || 'branch'}
-                </motion.button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-
-          <NewIssueModal
-            isOpen={isIssueModalOpen}
-            onClose={() => setIsIssueModalOpen(false)}
-            onSuccess={refreshIssues}
-            repoId={id!}
-          />
-
-          <NewPRModal
-            isOpen={isPRModalOpen}
-            onClose={() => setIsPRModalOpen(false)}
-            onSuccess={refreshPRs}
-            repoId={id!}
-            branches={branches}
-          />
-
-          {/* dynamic Tab Content */}
-          {activeTab === 'Code' ? (
-            <div className={styles['code-editor-wrapper']}>
-              <div className={styles['file-explorer-container']}>
-                <div className={styles['file-tree']}>
-                  <div className={styles['file-tree-header']}>
-                    <GitBranch size={14} />
-                    <span className={styles['file-tree-commit-msg']}>{activeBranch?.name || 'main'}</span>
-                    <span className={styles['file-tree-commit-time']}>{files.length} files</span>
-                  </div>
-                  <motion.div variants={containerVariants} initial="hidden" animate="visible">
-                    {loading ? (
-                      <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading files...</div>
-                    ) : files.length === 0 ? (
-                      <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>This repository is empty.</div>
-                    ) : (
-                      renderTree(treeData)
-                    )}
-                  </motion.div>
-                </div>
-
-                {/* Monaco Editor Overlay/Pane */}
-                <AnimatePresence mode="wait">
-                  {activeFile && (
+                  <GitBranch size={14} />
+                  <span className={styles.branchName}>{activeBranch?.name || 'main'}</span>
+                  <ChevronDown size={14} />
+                </button>
+                <AnimatePresence>
+                  {isBranchOpen && (
                     <motion.div
-                      className={styles['editor-pane']}
-                      key={activeFile.id}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 20 }}
+                      role="menu"
+                      className={`dropdown-menu ${styles.branchMenu}`}
+                      initial={{ opacity: 0, scale: 0.96, y: -4 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.97, y: -4 }}
+                      transition={{ duration: 0.14 }}
                     >
-                      <div className={styles['editor-header']}>
-                        <div className={styles['editor-title']}>
-                          <FileText size={14} />
-                          {activeFile.path}
-                        </div>
-                        <div className={styles['editor-actions']}>
-                          {canWrite && (
-                            <motion.button
-                              className={styles['ai-action-btn']}
-                              onClick={handleSave}
-                              disabled={isSaving || !isDirty}
-                              whileHover={{ scale: 1.05 }}
-                              whileTap={{ scale: 0.95 }}
-                              title={isDirty ? 'Save changes to this branch' : 'No unsaved changes'}
-                            >
-                              {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                              {isDirty ? 'Save*' : 'Saved'}
-                            </motion.button>
-                          )}
-
-                          <motion.button
-                            className={styles['ai-action-btn']}
-                            onClick={handleAIExplain}
-                            disabled={isAIExplaining}
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                          >
-                            {isAIExplaining ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                            AI Explain
-                          </motion.button>
-
-                          <motion.button
-                             className={`${styles['ai-action-btn']} ${styles['run-btn']}`}
-                             onClick={handleRun}
-                             disabled={isRunning}
-                             whileHover={{ scale: 1.05 }}
-                             whileTap={{ scale: 0.95 }}
-                           >
-                             {isRunning ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-                             Run
-                           </motion.button>
-
-                          <button
-                            className={styles['editor-close']}
-                            onClick={async () => { if (await confirmDiscard()) { setActiveFile(null); setIsDirty(false) } }}
-                          >
-                            <X size={16} />
-                          </button>
-                        </div>
-                      </div>
-                      <div className={styles['editor-body-wrapper']}>
-                        <div className={styles['editor-body']}>
-                          <Editor
-                            height="100%"
-                            theme="vs-dark"
-                            language={monacoLanguage}
-                            value={activeFile.content ?? ''}
-                            onChange={handleEditorChange}
-                            options={{
-                              readOnly: !canWrite,
-                              minimap: { enabled: false },
-                              fontSize: 14,
-                              lineNumbers: 'on',
-                              roundedSelection: true,
-                              fontFamily: 'JetBrains Mono, monospace',
-                              padding: { top: 16, bottom: 16 },
-                              scrollBeyondLastLine: false,
-                              smoothScrolling: true,
-                              cursorBlinking: 'smooth',
-                              cursorSmoothCaretAnimation: 'on',
-                            }}
-                          />
-                        </div>
-
-                        {/* Execution Terminal */}
-                        <AnimatePresence>
-                          {showTerminal && (
-                            <motion.div
-                              className={styles['terminal-panel']}
-                              initial={{ height: 0 }}
-                              animate={{ height: 250 }}
-                              exit={{ height: 0 }}
-                            >
-                              <TerminalOutput
-                                fileName={activeFile.path}
-                                running={isRunning}
-                                result={executionResult}
-                                runId={runId}
-                                durationMs={runDuration}
-                                onClear={() => setExecutionResult(null)}
-                                onClose={() => setShowTerminal(false)}
-                              />
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-
-                        {/* AI Explanation Drawer */}
-                        <AnimatePresence>
-                          {aiExplanation && (
-                            <motion.div
-                              className={styles['ai-explanation-drawer']}
-                              initial={{ y: '100%' }}
-                              animate={{ y: 0 }}
-                              exit={{ y: '100%' }}
-                            >
-                              <div className={styles['ai-drawer-header']}>
-                                <div className={styles['ai-drawer-title']}>
-                                  <Sparkles size={16} /> AI Code Analysis
-                                </div>
-                                <button onClick={() => setAIExplanation(null)}><X size={16} /></button>
-                              </div>
-                              <div className={styles['ai-drawer-content']}>
-                                {aiExplanation}
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
+                      <div className={styles.menuLabel}>Switch branch</div>
+                      {branches.map((b) => (
+                        <button
+                          key={b.id}
+                          role="menuitem"
+                          className={`dropdown-item ${activeBranch?.id === b.id ? 'active' : ''}`}
+                          onClick={async () => {
+                            setIsBranchOpen(false)
+                            if (b.id !== activeBranch?.id && (await confirmDiscard())) setActiveBranch(b)
+                          }}
+                        >
+                          <GitBranch size={13} /> {b.name}
+                          {b.is_default && <Badge tone="neutral" className={styles.defaultBadge}>default</Badge>}
+                        </button>
+                      ))}
+                      {canWrite && (
+                        <>
+                          <div className="dropdown-divider" />
+                          <button role="menuitem" className="dropdown-item" onClick={handleNewBranch}><Plus size={13} /> New branch</button>
+                        </>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>
               </div>
-            </div>
-          ) : activeTab === 'Issues' ? (
-            <div className={styles['tab-content-list']}>
-              <div className={styles['tab-list-header']}>
-                <h3 className={styles['tab-list-title']}>Issues</h3>
-                <motion.button
-                  className={styles['new-item-btn']}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setIsIssueModalOpen(true)}
-                >
-                  <Plus size={16} /> New Issue
-                </motion.button>
-              </div>
-
-              {repoIssues.length === 0 ? (
-                <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>No issues found.</div>
-              ) : (
-                repoIssues.map((issue, i) => (
-                  <motion.div key={issue.id} custom={i} variants={itemVariants} initial="hidden" animate="visible">
-                    <Link to={`/repo/${id}/issues/${issue.id}`} className={styles['tab-list-item']}>
-                      <Bug size={18} style={{ color: issue.status === 'open' ? 'var(--accent-amber)' : 'var(--accent-purple)' }} />
-                      <div className={styles['tab-list-item-content']}>
-                        <div className={styles['tab-list-item-title']}>{issue.title} <span style={{ color: 'var(--text-muted)' }}>#{issue.id.slice(0, 8)}</span></div>
-                        <div className={styles['tab-list-item-meta']}>
-                          opened {new Date(issue.created_at).toLocaleDateString()} by
-                          <span className={styles['author-link']}>{issue.author?.name || 'Developer'}</span>
-                        </div>
-                      </div>
-                    </Link>
-                  </motion.div>
-                ))
-              )}
-            </div>
-          ) : activeTab === 'Pull Requests' ? (
-            <div className={styles['tab-content-list']}>
-              <div className={styles['tab-list-header']}>
-                <h3 className={styles['tab-list-title']}>Pull Requests</h3>
-                {canWrite && (
-                  <motion.button
-                    className={styles['new-item-btn']}
-                    style={{ background: 'linear-gradient(135deg, #10b981 0%, #3b82f6 100%)' }}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setIsPRModalOpen(true)}
-                  >
-                    <Plus size={16} /> New PR
-                  </motion.button>
-                )}
-              </div>
-
-              {repoPRs.length === 0 ? (
-                <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>No pull requests found.</div>
-              ) : (
-                repoPRs.map((pr, i) => (
-                  <motion.div key={pr.id} custom={i} variants={itemVariants} initial="hidden" animate="visible">
-                    <Link to={`/repo/${id}/pull-requests/${pr.id}`} className={styles['tab-list-item']}>
-                      <GitPullRequest size={18} style={{ color: pr.status === 'open' ? 'var(--accent-emerald)' : 'var(--accent-purple)' }} />
-                      <div className={styles['tab-list-item-content']}>
-                        <div className={styles['tab-list-item-title']}>{pr.title} <span style={{ color: 'var(--text-muted)' }}>#{pr.id.slice(0, 8)}</span></div>
-                        <div className={styles['tab-list-item-meta']}>
-                          opened {new Date(pr.created_at).toLocaleDateString()} by
-                          <span className={styles['author-link']}>{pr.author?.name || 'Developer'}</span>
-                        </div>
-                      </div>
-                    </Link>
-                  </motion.div>
-                ))
-              )}
-            </div>
-          ) : activeTab === 'Commits' ? (
-            <div className={styles['tab-content-list']}>
-              <div className={styles['tab-list-header']}>
-                <h3 className={styles['tab-list-title']}>
-                  Commits on <span style={{ color: 'var(--accent-neon)' }}>{activeBranch?.name || 'main'}</span>
-                </h3>
-              </div>
-
-              {commitsLoading && repoCommits.length === 0 ? (
-                <div style={{ display: 'grid', gap: 'var(--space-3)', padding: 'var(--space-4) 0' }} aria-busy="true" aria-label="Loading history">
-                  {[0, 1, 2, 3].map((n) => (
-                    <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', paddingLeft: 'var(--space-3)' }}>
-                      <Skeleton width={14} height={14} radius="50%" />
-                      <Skeleton width={28} height={28} radius="50%" />
-                      <div style={{ flex: 1, display: 'grid', gap: 6 }}>
-                        <Skeleton width={`${60 - n * 8}%`} height={14} />
-                        <Skeleton width="30%" height={10} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : repoCommits.length === 0 ? (
-                <EmptyState
-                  title="No commits on this branch yet"
-                  description="Edit a file and commit it to start this branch's history."
-                />
-              ) : (
-                <CommitGraph commits={repoCommits} repoId={id!} />
-              )}
-            </div>
-          ) : activeTab === 'Insights' ? (
-            <div className={styles['tab-content-list']}>
-              <div className={styles['tab-list-header']}>
-                <h3 className={styles['tab-list-title']}>Repository Insights</h3>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  <Activity size={14} style={{ marginRight: 6 }} />
-                  {repoMetrics.length} total executions
-                </div>
-              </div>
-
-              <div className={styles['insights-grid']}>
-                <div className={styles['insights-card']}>
-                   <div className={styles['insights-card-header']}>
-                      <Clock size={16} color="var(--accent-neon)" /> Performance History (Success vs Error)
-                   </div>
-                   <div style={{ width: '100%', height: 250, marginTop: 20 }}>
-                     <ResponsiveContainer>
-                       <AreaChart data={repoMetrics.slice(-10)}>
-                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                         <XAxis
-                           dataKey="created_at"
-                           stroke="var(--text-muted)"
-                           tick={{ fontSize: 10 }}
-                           tickFormatter={(str) => new Date(str).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                         />
-                         <YAxis stroke="var(--text-muted)" tick={{ fontSize: 10 }} />
-                         <Tooltip
-                            contentStyle={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                            itemStyle={{ fontSize: '10px' }}
-                         />
-                         <Area type="monotone" dataKey="duration" stroke="var(--accent-neon)" fill="rgba(0, 255, 242, 0.1)" strokeWidth={2} />
-                       </AreaChart>
-                     </ResponsiveContainer>
-                   </div>
-                </div>
-
-                <div className={styles['insights-card']}>
-                   <div className={styles['insights-card-header']}>
-                      <PieChartIcon size={16} color="var(--accent-purple)" /> Language Distribution
-                   </div>
-                   <div style={{ width: '100%', height: 250, marginTop: 20 }}>
-                     <ResponsiveContainer>
-                       <PieChart>
-                         <Pie
-                           data={(() => {
-                             const langs: Record<string, { name: string, value: number }> = {}
-                             repoMetrics.forEach(m => {
-                               if (!langs[m.language]) langs[m.language] = { name: m.language, value: 0 }
-                               langs[m.language].value++
-                             })
-                             return Object.values(langs)
-                           })()}
-                           cx="50%"
-                           cy="50%"
-                           innerRadius={40}
-                           outerRadius={60}
-                           paddingAngle={4}
-                           dataKey="value"
-                         >
-                            <Cell fill="var(--accent-neon)" />
-                            <Cell fill="var(--accent-purple)" />
-                            <Cell fill="var(--accent-amber)" />
-                         </Pie>
-                         <Tooltip />
-                       </PieChart>
-                     </ResponsiveContainer>
-                   </div>
-                </div>
-              </div>
-
-              <div className={styles['audit-list']}>
-                <h4 style={{ fontSize: '0.9rem', marginBottom: 16, color: 'var(--text-secondary)' }}>Recent Activity</h4>
-                {repoMetrics.slice(-5).reverse().map((m, i) => (
-                  <div key={i} className={styles['audit-list-item']}>
-                    <div className={styles['audit-list-dot']} style={{ backgroundColor: m.status === 'success' ? '#10b981' : '#ef4444' }} />
-                    <div style={{ flex: 1 }}>
-                       Run <strong>{m.language}</strong>
-                       <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>{m.duration}ms</span>
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      {new Date(m.created_at).toLocaleString()}
-                    </div>
-                  </div>
-                ))}
-                {repoMetrics.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No execution metrics recorded yet.</div>}
-              </div>
-            </div>
-          ) : activeTab === 'Settings' ? (
-            <motion.div
-              className={styles['settings-pane']}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <div className={styles['settings-card']}>
-                <div className={styles['settings-card-title']}>General</div>
-                <div className={styles['settings-form-group']}>
-                  <label>Repository Name</label>
-                  <input
-                    className={styles['settings-input']}
-                    value={newRepoName}
-                    onChange={(e) => setNewRepoName(e.target.value)}
+              {canWrite && (
+                <div className={styles.explorerActions}>
+                  <IconButton size="sm" label="New file" icon={<FilePlus size={15} />} onClick={handleNewFile} />
+                  <IconButton
+                    size="sm"
+                    label="Commit changes"
+                    variant={showCommitBox ? 'secondary' : 'ghost'}
+                    icon={<GitCommitHorizontal size={15} />}
+                    onClick={() => setShowCommitBox(!showCommitBox)}
                   />
-                  <button className={styles['settings-save-btn']} onClick={handleRename}>Save Changes</button>
                 </div>
-              </div>
+              )}
+            </div>
 
-              <div className={styles['settings-card']}>
-                <div className={styles['settings-card-title']}>Visibility</div>
-                <div className={styles['settings-form-group']}>
-                  <label>This repository is {activeRepo?.is_private ? 'private' : 'public'}.</label>
-                  <button className={styles['settings-save-btn']} onClick={handleToggleVisibility}>
-                    Make {activeRepo?.is_private ? 'public' : 'private'}
-                  </button>
+            <AnimatePresence initial={false}>
+              {showCommitBox && canWrite && (
+                <motion.form
+                  className={styles.commitBox}
+                  onSubmit={(e) => { e.preventDefault(); handleCommit() }}
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <input
+                    className={styles.commitInput}
+                    placeholder="Describe your change…"
+                    value={commitMessage}
+                    onChange={(e) => setCommitMessage(e.target.value)}
+                    aria-label="Commit message"
+                    maxLength={500}
+                    autoFocus
+                  />
+                  <Button
+                    ref={commitButtonRef}
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    fullWidth
+                    loading={isCommitting}
+                    disabled={!commitMessage.trim()}
+                    iconLeft={<GitCommitHorizontal size={14} />}
+                  >
+                    Commit to {activeBranch?.name || 'branch'}
+                  </Button>
+                </motion.form>
+              )}
+            </AnimatePresence>
+
+            <div className={styles.treeScroll}>
+              {loading ? (
+                <div className={styles.treeSkeleton}>
+                  {[70, 55, 80, 45, 62].map((w, i) => <Skeleton key={i} width={`${w}%`} height={14} />)}
                 </div>
-              </div>
+              ) : files.length === 0 ? (
+                <p className={styles.quiet}>This branch has no files yet.</p>
+              ) : (
+                <FileTree files={files} activePath={activeFile?.path} dirtyPath={isDirty ? activeFile?.path : null} onOpen={openFile} />
+              )}
+            </div>
+          </aside>
 
-              <div className={`${styles['settings-card']} ${styles['danger-zone']}`}>
-                <div className={styles['settings-card-title']}>Danger Zone</div>
-                <button className={styles['delete-btn']} onClick={handleDelete}>Delete this repository</button>
+          <section className={styles.editorPane} aria-label="Editor">
+            <div className={styles.tabBar}>
+              <div className={styles.fileTabs} role="tablist" aria-label="Open files">
+                {openPaths.map((path) => {
+                  const active = path === activeFile?.path
+                  return (
+                    <div key={path} className={`${styles.fileTab} ${active ? styles.fileTabActive : ''}`}>
+                      <button
+                        role="tab"
+                        aria-selected={active}
+                        className={styles.fileTabButton}
+                        title={path}
+                        onClick={() => { const f = files.find((x) => x.path === path); if (f) openFile(f) }}
+                      >
+                        <span className={styles.fileDot} style={{ background: fileColor(path) }} />
+                        {path.split('/').pop()}
+                        {active && isDirty && <span className={styles.dirtyDot} aria-label="Unsaved changes" />}
+                      </button>
+                      <button className={styles.fileTabClose} aria-label={`Close ${path}`} onClick={() => closeTab(path)}>
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )
+                })}
               </div>
-            </motion.div>
+              {activeFile && (
+                <div className={styles.editorActions}>
+                  {canWrite && (
+                    <Button size="sm" variant="ghost" iconLeft={<Save size={14} />} onClick={handleSave} loading={isSaving} disabled={!isDirty} title="Save (Ctrl+S)">
+                      {isDirty ? 'Save' : 'Saved'}
+                    </Button>
+                  )}
+                  <Button size="sm" variant="ghost" iconLeft={<Sparkles size={14} />} onClick={handleAIExplain} loading={isAIExplaining} disabled={!activeFile.content}>
+                    Explain
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    iconLeft={<Play size={14} />}
+                    onClick={handleRun}
+                    loading={isRunning}
+                    disabled={!runnable}
+                    title={runnable ? 'Run this file' : 'Only .js, .ts, .py and .cpp files can run'}
+                  >
+                    Run
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className={styles.editorBody}>
+              {activeFile ? (
+                <>
+                  <div className={styles.breadcrumb}>
+                    {activeFile.path.split('/').map((segment, i, all) => (
+                      <span key={i} className={styles.crumb}>
+                        {segment}
+                        {i < all.length - 1 && <ChevronRight size={12} />}
+                      </span>
+                    ))}
+                  </div>
+                  <div className={styles.editor}>
+                    <Editor
+                      key={activeFile.path}
+                      height="100%"
+                      theme={resolvedTheme === 'dark' ? 'vs-dark' : 'light'}
+                      language={monacoLanguage(activeFile.path)}
+                      value={activeFile.content ?? ''}
+                      onChange={handleEditorChange}
+                      onMount={onEditorMount}
+                      loading={<div className={styles.editorLoading}><Spinner /> Loading editor…</div>}
+                      options={{
+                        readOnly: !canWrite,
+                        minimap: { enabled: false },
+                        fontSize: 14,
+                        fontFamily: 'JetBrains Mono, monospace',
+                        fontLigatures: true,
+                        lineNumbers: 'on',
+                        padding: { top: 12, bottom: 12 },
+                        scrollBeyondLastLine: false,
+                        smoothScrolling: true,
+                        cursorBlinking: 'smooth',
+                        cursorSmoothCaretAnimation: 'on',
+                        renderLineHighlight: 'all',
+                      }}
+                    />
+                  </div>
+                </>
+              ) : readme ? (
+                <article className={styles.readme}>
+                  <div className={styles.readmeHead}><FileText size={14} /> README.md</div>
+                  <div className={styles.markdown}><ReactMarkdown>{readme.content || ''}</ReactMarkdown></div>
+                </article>
+              ) : (
+                <EmptyState
+                  title="Pick a file to start forging"
+                  description="Choose a file from the explorer, or create a new one."
+                  action={canWrite ? <Button variant="primary" size="sm" iconLeft={<FilePlus size={14} />} onClick={handleNewFile}>New file</Button> : undefined}
+                />
+              )}
+            </div>
+
+            <AnimatePresence>
+              {showTerminal && activeFile && (
+                <motion.div
+                  className={styles.terminal}
+                  initial={{ height: 0 }}
+                  animate={{ height: 240 }}
+                  exit={{ height: 0 }}
+                  transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <TerminalOutput
+                    fileName={activeFile.path}
+                    running={isRunning}
+                    result={executionResult}
+                    runId={runId}
+                    durationMs={runDuration}
+                    onClear={() => setExecutionResult(null)}
+                    onClose={() => setShowTerminal(false)}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <footer className={styles.statusBar}>
+              <span className={styles.statusItem}><GitBranch size={12} /> {activeBranch?.name || 'main'}</span>
+              {activeFile && (
+                <span className={`${styles.statusItem} ${isDirty ? styles.statusDirty : ''}`}>
+                  {isDirty ? <><span className={styles.dirtyDot} /> Unsaved</> : <><CheckCircle2 size={12} /> Saved</>}
+                </span>
+              )}
+              {!canWrite && <span className={styles.statusItem}><Lock size={12} /> Read-only</span>}
+              <span className={styles.statusSpacer} />
+              {isRunning && <span className={`${styles.statusItem} ${styles.statusRun}`}><Loader2 size={12} className="animate-spin" /> Running</span>}
+              {activeFile && cursor && <span className={styles.statusItem}>Ln {cursor.line}, Col {cursor.column}</span>}
+              {activeFile && <span className={styles.statusItem}>{languageLabel(activeFile.path)}</span>}
+              <span className={styles.statusItem} title="People in this repository"><Users size={12} /> {Math.max(1, activeUsers.length)}</span>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {activeTab === 'Issues' && (
+        <section className={styles.listSection}>
+          <div className={styles.listHead}>
+            <h2>Issues</h2>
+            {user && <Button variant="primary" size="sm" iconLeft={<Plus size={14} />} onClick={() => setIsIssueModalOpen(true)}>New issue</Button>}
+          </div>
+          {repoIssues.length === 0 ? (
+            <Card padding="none"><EmptyState title="No issues yet" description="Track bugs, ideas and to-dos for this repository." /></Card>
           ) : (
-            <div className={styles['coming-soon']}>
-              <Terminal size={40} />
-              <p>{activeTab} module is being initialized...</p>
-            </div>
+            <Card padding="none">
+              <ul className={styles.rows}>
+                {repoIssues.map((issue) => (
+                  <li key={issue.id}>
+                    <Link to={`/repo/${id}/issues/${issue.id}`} className={styles.row}>
+                      {issue.status === 'open'
+                        ? <CircleDot size={16} className={styles.openIcon} />
+                        : <CheckCircle2 size={16} className={styles.closedIcon} />}
+                      <span className={styles.rowMain}>
+                        <span className={styles.rowTitle}>{issue.title}</span>
+                        <span className={styles.rowMeta}>Opened {timeAgo(issue.created_at, now)} by {issue.author?.name || 'Deleted user'}</span>
+                      </span>
+                      <Badge tone={issue.status === 'open' ? 'success' : 'neutral'} dot>{issue.status}</Badge>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Card>
           )}
-        </motion.div>
+        </section>
+      )}
 
-        {/* Right Panel */}
-        <motion.div
-          className={styles['repo-about']}
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-        >
-          <div className={styles['repo-about-card']}>
-            <div className={styles['repo-about-title']}>About</div>
-            <p className={styles['repo-about-text']}>{activeRepo?.description || 'Build something amazing.'}</p>
+      {activeTab === 'Pull Requests' && (
+        <section className={styles.listSection}>
+          <div className={styles.listHead}>
+            <h2>Pull requests</h2>
+            {canWrite && <Button variant="primary" size="sm" iconLeft={<Plus size={14} />} onClick={() => setIsPRModalOpen(true)}>New pull request</Button>}
           </div>
+          {repoPRs.length === 0 ? (
+            <Card padding="none"><EmptyState title="No pull requests yet" description="Create a branch, commit a change, and open a pull request to start a review." /></Card>
+          ) : (
+            <Card padding="none">
+              <ul className={styles.rows}>
+                {repoPRs.map((pr) => (
+                  <li key={pr.id}>
+                    <Link to={`/repo/${id}/pull-requests/${pr.id}`} className={styles.row}>
+                      {pr.status === 'merged'
+                        ? <GitMerge size={16} className={styles.mergedIcon} />
+                        : <GitPullRequest size={16} className={pr.status === 'open' ? styles.openIcon : styles.closedIcon} />}
+                      <span className={styles.rowMain}>
+                        <span className={styles.rowTitle}>{pr.title}</span>
+                        <span className={styles.rowMeta}>
+                          <code>{pr.source?.name || '?'}</code> → <code>{pr.target?.name || '?'}</code> · opened {timeAgo(pr.created_at, now)} by {pr.author?.name || 'Deleted user'}
+                        </span>
+                      </span>
+                      <Badge tone={pr.status === 'open' ? 'success' : pr.status === 'merged' ? 'info' : 'neutral'} dot>{pr.status}</Badge>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+        </section>
+      )}
 
-          <div className={styles['repo-about-card']}>
-            <div className={styles['repo-about-title']}>Health & Insights</div>
-            <div className={styles['repo-stats-grid']}>
-              <button
-                ref={starButtonRef}
-                className={styles['stat-item']}
-                onClick={handleToggleStar}
-                disabled={isStarring}
-                style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'inherit', font: 'inherit', padding: 0, display: 'flex', alignItems: 'center', gap: 'inherit' }}
-                title={activeRepo?.starred_by_me ? 'Unstar this repository' : 'Star this repository'}
-              >
-                <Star size={14} fill={activeRepo?.starred_by_me ? 'currentColor' : 'none'} style={{ color: activeRepo?.starred_by_me ? '#eab308' : 'inherit' }} />
-                <span>{activeRepo?.stars_count || 0} Stars</span>
-              </button>
-              <div className={styles['stat-item']}>
-                <GitBranch size={14} />
-                <span>{branches.length} Branches</span>
-              </div>
-              <div className={styles['stat-item']}>
-                <Shield size={14} style={{ color: 'var(--accent-emerald)' }} />
-                <span>{activeRepo?.is_private ? 'Private' : 'Public'}</span>
-              </div>
-            </div>
+      {activeTab === 'Commits' && (
+        <section className={styles.listSection}>
+          <div className={styles.listHead}>
+            <h2>Commits on <span className={styles.branchHighlight}>{activeBranch?.name || 'main'}</span></h2>
           </div>
-        </motion.div>
-      </div>
+          {commitsLoading && repoCommits.length === 0 ? (
+            <Card>
+              <div className={styles.treeSkeleton}>
+                {[60, 48, 72, 40].map((w, i) => <Skeleton key={i} width={`${w}%`} height={16} />)}
+              </div>
+            </Card>
+          ) : repoCommits.length === 0 ? (
+            <Card padding="none"><EmptyState title="No commits on this branch yet" description="Edit a file and commit it to start this branch's history." /></Card>
+          ) : (
+            <Card padding="sm"><CommitGraph commits={repoCommits} repoId={id!} /></Card>
+          )}
+        </section>
+      )}
+
+      {activeTab === 'Insights' && (
+        <section className={styles.listSection}>
+          <div className={styles.listHead}><h2>Insights</h2></div>
+          <InsightsPanel metrics={repoMetrics} />
+        </section>
+      )}
+
+      {activeTab === 'Settings' && isOwner && (
+        <section className={styles.settings}>
+          <Card className={styles.settingsCard}>
+            <h2>General</h2>
+            <form className={styles.settingsForm} onSubmit={(e) => { e.preventDefault(); handleRename() }}>
+              <Input
+                label="Repository name"
+                value={newRepoName}
+                onChange={(e) => setNewRepoName(e.target.value)}
+                hint="Letters, numbers, dot, dash and underscore."
+                mono
+              />
+              <Button type="submit" variant="primary" disabled={!newRepoName.trim() || newRepoName === activeRepo?.name}>Rename</Button>
+            </form>
+          </Card>
+
+          <Card className={styles.settingsCard}>
+            <h2>Visibility</h2>
+            <p className={styles.settingsText}>
+              This repository is <strong>{activeRepo?.is_private ? 'private' : 'public'}</strong>.{' '}
+              {activeRepo?.is_private ? 'Only you and collaborators can see it.' : 'Anyone can see its code, issues and pull requests.'}
+            </p>
+            <div><Button onClick={handleToggleVisibility}>Make {activeRepo?.is_private ? 'public' : 'private'}</Button></div>
+          </Card>
+
+          <Card className={`${styles.settingsCard} ${styles.danger}`}>
+            <h2>Danger zone</h2>
+            <p className={styles.settingsText}>Deleting a repository removes its branches, commits, pull requests and issues. This cannot be undone.</p>
+            <div><Button variant="danger" iconLeft={<Trash2 size={15} />} onClick={handleDelete}>Delete this repository</Button></div>
+          </Card>
+        </section>
+      )}
+
+      <NewIssueModal isOpen={isIssueModalOpen} onClose={() => setIsIssueModalOpen(false)} onSuccess={refreshIssues} repoId={id!} />
+      <NewPRModal isOpen={isPRModalOpen} onClose={() => setIsPRModalOpen(false)} onSuccess={refreshPRs} repoId={id!} branches={branches} />
+
+      <Modal
+        open={!!aiExplanation}
+        onClose={() => setAIExplanation(null)}
+        side="right"
+        title={<span className={styles.aiTitle}><Sparkles size={18} /> AI explanation</span>}
+        description={activeFile?.path}
+      >
+        <div className={styles.markdown}><ReactMarkdown>{aiExplanation || ''}</ReactMarkdown></div>
+      </Modal>
     </div>
   )
 }
-

@@ -119,6 +119,12 @@
   --shadow-3: 0 18px 50px rgba(0, 0, 0, 0.55);
   --shadow-ember: 0 0 0 1px rgba(255, 122, 47, 0.35), 0 8px 28px rgba(255, 90, 31, 0.28);
 
+  /* Chart series/status pair — validated with the dataviz palette checks
+     (lightness band, chroma, CVD + normal-vision separation, contrast) */
+  --chart-series: #5f8af0;
+  --chart-error: #ef5350;
+  --chart-grid: rgba(255, 236, 220, 0.07);
+
   --skeleton-base: #1f1a16;
   --skeleton-shine: #2c2520;
 }
@@ -171,6 +177,10 @@
   --shadow-2: 0 6px 20px rgba(64, 42, 26, 0.1);
   --shadow-3: 0 18px 50px rgba(64, 42, 26, 0.16);
   --shadow-ember: 0 0 0 1px rgba(232, 84, 27, 0.3), 0 8px 24px rgba(232, 84, 27, 0.18);
+
+  --chart-series: #2a62c9;
+  --chart-error: #c42b2b;
+  --chart-grid: rgba(64, 42, 26, 0.08);
 
   --skeleton-base: #efe7de;
   --skeleton-shine: #f8f3ee;
