@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout/Layout'
 import Landing from './pages/Landing/Landing'
@@ -17,9 +18,19 @@ import Auth from './pages/Auth/Auth'
 import AdminDashboard from './pages/Admin/AdminDashboard'
 import CommitDetail from './pages/Commits/CommitDetail'
 import StyleGuide from './pages/StyleGuide/StyleGuide'
+import NotFound from './pages/NotFound/NotFound'
 import ProtectedRoute from './components/ProtectedRoute/ProtectedRoute'
+import { useKonami } from './lib/useKonami'
+import { sparkRain } from './lib/sparks'
+import { toast } from './components/ui'
 
 function App() {
+  // Easter egg: up up down down left right left right B A
+  useKonami(useCallback(() => {
+    sparkRain(4000)
+    toast('You found the forge’s secret', { description: 'Keep the fire burning.' })
+  }, []))
+
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
@@ -45,6 +56,8 @@ function App() {
           <Route path="/admin" element={<AdminDashboard />} />
         </Route>
       </Route>
+
+      <Route path="*" element={<NotFound />} />
     </Routes>
   )
 }

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, GitPullRequest } from 'lucide-react'
 import { createPullRequest, getErrorMessage } from '../../lib/api'
+import { sparkBurst } from '../../lib/sparks'
 import type { Branch } from '../../lib/api'
 import styles from './NewIssueModal.module.css' // Reuse modal styles
 
@@ -20,6 +21,7 @@ export default function NewPRModal({ isOpen, onClose, onSuccess, repoId, branche
   const [targetId, setTargetId] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const submitRef = useRef<HTMLButtonElement>(null)
 
   // Auto-select default/target if branches are available
   if (targetId === '' && branches.length > 0) {
@@ -49,6 +51,7 @@ export default function NewPRModal({ isOpen, onClose, onSuccess, repoId, branche
         title,
         description
       })
+      sparkBurst(submitRef.current, { count: 36, power: 8 })
       onSuccess()
       onClose()
       setTitle('')
@@ -148,7 +151,7 @@ export default function NewPRModal({ isOpen, onClose, onSuccess, repoId, branche
 
               <div className={styles['modal-footer']}>
                 <button type="button" className="btn-ghost" onClick={onClose} disabled={loading}>Cancel</button>
-                <button type="submit" className={styles['submit-btn']} style={{ background: 'linear-gradient(135deg, #10b981 0%, #3b82f6 100%)' }} disabled={loading}>
+                <button ref={submitRef} type="submit" className={styles['submit-btn']} disabled={loading}>
                   {loading ? 'Opening...' : 'Create Pull Request'}
                 </button>
               </div>

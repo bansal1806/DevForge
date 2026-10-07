@@ -9,6 +9,7 @@ import {
   Skeleton, SkeletonText, Spinner, Tabs, Textarea, ThemeToggle, Tooltip, toast, useDialog,
 } from '../../components/ui'
 import { fadeUp, stagger } from '../../lib/motion'
+import { sparkBurst } from '../../lib/sparks'
 import styles from './StyleGuide.module.css'
 
 const SWATCHES: [string, string][] = [
@@ -113,10 +114,12 @@ export default function StyleGuide() {
   const [listKey, setListKey] = useState(0)
   const [nameError, setNameError] = useState<string | null>('That name is already taken')
 
-  const runLoading = () => {
+  const runLoading = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const button = e.currentTarget
     setLoadingDemo(true)
     window.setTimeout(() => {
       setLoadingDemo(false)
+      sparkBurst(button, { count: 34, power: 7.5 })
       toast.success('Committed to main', { description: '3 files changed' })
     }, 1400)
   }

@@ -5,6 +5,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 import { useRepoRealtime, type FileChange } from '../../lib/useRepoRealtime'
 import { useDialog, toast } from '../../components/ui'
+import { sparkBurst } from '../../lib/sparks'
 import { useStore } from '../../store/useStore'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -140,6 +141,8 @@ export default function RepoView() {
   useEffect(() => { activeBranchRef.current = activeBranch }, [activeBranch])
 
   const dialog = useDialog()
+  const commitButtonRef = useRef<HTMLButtonElement>(null)
+  const starButtonRef = useRef<HTMLButtonElement>(null)
   const confirmDiscard = async () =>
     !isDirty || dialog.confirm({
       title: 'Discard unsaved changes?',
@@ -252,6 +255,7 @@ export default function RepoView() {
       setCommitMessage('')
       setShowCommitBox(false)
       setCommitsVersion((v) => v + 1)
+      sparkBurst(commitButtonRef.current, { count: 34, power: 7.5 })
       toast.success('Changes committed.')
     } catch (err) {
       toast.error(getErrorMessage(err, 'Error: failed to commit changes.'))
@@ -294,6 +298,7 @@ export default function RepoView() {
     try {
       const result = await toggleStar(id)
       setActiveRepo({ ...activeRepo, starred_by_me: result.starred, stars_count: result.stars_count })
+      if (result.starred) sparkBurst(starButtonRef.current, { count: 18, power: 5, spread: 220 })
     } catch (err) {
       console.error(err)
     } finally {
@@ -745,6 +750,7 @@ export default function RepoView() {
                   onKeyDown={(e) => { if (e.key === 'Enter') handleCommit() }}
                 />
                 <motion.button
+                  ref={commitButtonRef}
                   className="btn-ghost"
                   whileHover={{ scale: 1.04 }}
                   whileTap={{ scale: 0.96 }}
@@ -1192,6 +1198,7 @@ export default function RepoView() {
             <div className={styles['repo-about-title']}>Health & Insights</div>
             <div className={styles['repo-stats-grid']}>
               <button
+                ref={starButtonRef}
                 className={styles['stat-item']}
                 onClick={handleToggleStar}
                 disabled={isStarring}

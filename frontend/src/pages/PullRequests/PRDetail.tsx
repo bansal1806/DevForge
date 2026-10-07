@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -28,6 +28,8 @@ import {
   getMergeConflicts,
 } from '../../lib/api'
 import DiffViewer from '../../components/DiffViewer/DiffViewer'
+import { sparkBurst } from '../../lib/sparks'
+import { toast } from '../../components/ui'
 import CommentSection from '../../components/Social/CommentSection'
 import styles from './PRDetail.module.css'
 import issueStyles from '../Issues/IssueDetail.module.css'
@@ -40,6 +42,7 @@ export default function PRDetail() {
   const [permissions, setPermissions] = useState<PullRequestDetail['permissions']>({ canMerge: false, canClose: false })
   const [conflicts, setConflicts] = useState<string[]>([])
   const [preview, setPreview] = useState<MergePreview | null>(null)
+  const mergeButtonRef = useRef<HTMLButtonElement>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [discussionKey, setDiscussionKey] = useState(0)
   const [activeTab, setActiveTab] = useState<'conversation' | 'files'>('conversation')
@@ -78,6 +81,13 @@ export default function PRDetail() {
     setConflicts([])
     try {
       await mergePullRequest(prId)
+      const origin = mergeButtonRef.current?.getBoundingClientRect()
+      if (origin) {
+        const point = { x: origin.left + origin.width / 2, y: origin.top + origin.height / 2 }
+        sparkBurst(point, { count: 70, power: 10, spread: 200 })
+        window.setTimeout(() => sparkBurst(point, { count: 40, power: 7, spread: 120 }), 180)
+      }
+      toast.success('Pull request merged', { description: `${pr?.source?.name || 'source'} → ${pr?.target?.name || 'target'}` })
       const data = await getPullRequestById(prId)
       setPr(data.pr)
       setDiff(data.diff)
@@ -283,7 +293,7 @@ export default function PRDetail() {
                   {pr.status === 'open' && (
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                       {permissions.canMerge && (
-                        <button className={styles['btn-merge']} onClick={handleMerge} disabled={merging || conflicts.length > 0 || !preview}>
+                        <button ref={mergeButtonRef} className={styles['btn-merge']} onClick={handleMerge} disabled={merging || conflicts.length > 0 || !preview}>
                           {merging ? <Loader2 size={18} className="animate-spin" /> : <GitMerge size={18} />}
                           {merging ? 'Merging…' : 'Merge pull request'}
                         </button>
