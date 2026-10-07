@@ -495,8 +495,8 @@
 }
 
 .settings-save-btn {
-  background: var(--accent-base);
-  color: white;
+  background: var(--molten);
+  color: var(--on-molten);
   border: none;
   border-radius: 8px;
   padding: 10px 20px;
@@ -509,7 +509,7 @@
 }
 
 .settings-save-btn:hover {
-  background: var(--accent-neon);
+  background: var(--molten-hover);
   box-shadow: 0 0 15px var(--accent-glow);
 }
 
@@ -694,23 +694,6 @@
   border-radius: 8px;
 }
 
-.notification-toast {
-  position: fixed;
-  bottom: 40px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--accent-neon);
-  padding: 12px 24px;
-  border-radius: 12px;
-  color: white;
-  font-size: 0.9rem;
-  font-weight: 500;
-  z-index: 1000;
-  box-shadow: 0 10px 30px rgba(0, 255, 242, 0.2);
-  pointer-events: none;
-}
 
 .coming-soon {
   display: flex;

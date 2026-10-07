@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { GitBranch, Mail, Lock, AlertCircle, Loader2, Sparkles } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { apiClient, getErrorMessage } from '../../lib/api'
+import { toast } from '../../components/ui'
 import styles from './Auth.module.css'
 
 export default function Auth() {
@@ -57,7 +58,7 @@ export default function Auth() {
         navigate('/dashboard')
       } else {
         // Registration successful
-        alert('Registration successful! Please check your email if confirmation is required.')
+        toast.success('Account created', { description: 'Check your email if confirmation is required, then sign in.' })
         setIsLogin(true)
       }
     } catch (err) {

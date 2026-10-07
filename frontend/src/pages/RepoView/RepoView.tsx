@@ -4,6 +4,7 @@ import type { Variants } from 'framer-motion'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 import { useRepoRealtime, type FileChange } from '../../lib/useRepoRealtime'
+import { useDialog, toast } from '../../components/ui'
 import { useStore } from '../../store/useStore'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -138,7 +139,15 @@ export default function RepoView() {
   useEffect(() => { activeFileRef.current = activeFile }, [activeFile])
   useEffect(() => { activeBranchRef.current = activeBranch }, [activeBranch])
 
-  const confirmDiscard = () => !isDirty || window.confirm('You have unsaved changes. Discard them?')
+  const dialog = useDialog()
+  const confirmDiscard = async () =>
+    !isDirty || dialog.confirm({
+      title: 'Discard unsaved changes?',
+      message: `Your edits to ${activeFile?.path || 'this file'} haven't been saved. They'll be lost if you continue.`,
+      confirmLabel: 'Discard changes',
+      cancelLabel: 'Keep editing',
+      tone: 'danger',
+    })
 
   // Warn before closing the tab with unsaved edits
   useEffect(() => {
@@ -157,34 +166,47 @@ export default function RepoView() {
     try {
       const updated = await updateRepository(activeRepo.id, { name: newRepoName.trim() })
       setActiveRepo({ ...activeRepo, ...updated })
-      showNotification('Repository renamed.')
+      toast.success('Repository renamed.')
     } catch (err) {
-      showNotification(getErrorMessage(err, 'Failed to rename repository.'))
+      toast.error(getErrorMessage(err, 'Failed to rename repository.'))
     }
   }
 
   const handleToggleVisibility = async () => {
     if (!activeRepo) return
     const makePrivate = !activeRepo.is_private
-    if (!window.confirm(`Make ${activeRepo.name} ${makePrivate ? 'private' : 'public'}?`)) return
+    const ok = await dialog.confirm({
+      title: `Make ${activeRepo.name} ${makePrivate ? 'private' : 'public'}?`,
+      message: makePrivate
+        ? 'Only you and collaborators will be able to see it.'
+        : 'Anyone on the internet will be able to see its code, issues and pull requests.',
+      confirmLabel: makePrivate ? 'Make private' : 'Make public',
+    })
+    if (!ok) return
     try {
       const updated = await updateRepository(activeRepo.id, { is_private: makePrivate })
       setActiveRepo({ ...activeRepo, ...updated })
-      showNotification(`Repository is now ${makePrivate ? 'private' : 'public'}.`)
+      toast.success(`Repository is now ${makePrivate ? 'private' : 'public'}.`)
     } catch (err) {
-      showNotification(getErrorMessage(err, 'Failed to change visibility.'))
+      toast.error(getErrorMessage(err, 'Failed to change visibility.'))
     }
   }
 
   const handleDelete = async () => {
     if (!activeRepo) return
-    const confirmed = window.confirm(`Are you absolutely sure you want to delete ${activeRepo.name}? This action cannot be undone.`)
+    const confirmed = await dialog.confirm({
+      title: `Delete ${activeRepo.name}?`,
+      message: 'This permanently deletes the repository with all of its branches, commits, pull requests and issues. It cannot be undone.',
+      confirmLabel: 'Delete repository',
+      tone: 'danger',
+      requireText: activeRepo.name,
+    })
     if (confirmed) {
       try {
         await deleteRepository(activeRepo.id)
         navigate('/dashboard')
       } catch (err) {
-        showNotification(getErrorMessage(err, 'Failed to delete repository.'))
+        toast.error(getErrorMessage(err, 'Failed to delete repository.'))
       }
     }
   }
@@ -208,10 +230,10 @@ export default function RepoView() {
     try {
       await saveFile(id, activeBranch.id, activeFile.path, activeFile.content || '')
       setIsDirty(false)
-      showNotification('File saved. Commit your changes to record them in history.')
+      toast.success('File saved. Commit your changes to record them in history.')
       setFiles(files.map(f => (f.path === activeFile.path ? { ...f, content: activeFile.content } : f)))
     } catch (err) {
-      showNotification(getErrorMessage(err, 'Error: failed to save file.'))
+      toast.error(getErrorMessage(err, 'Error: failed to save file.'))
     } finally {
       setIsSaving(false)
     }
@@ -230,27 +252,39 @@ export default function RepoView() {
       setCommitMessage('')
       setShowCommitBox(false)
       setCommitsVersion((v) => v + 1)
-      showNotification('Changes committed.')
+      toast.success('Changes committed.')
     } catch (err) {
-      showNotification(getErrorMessage(err, 'Error: failed to commit changes.'))
+      toast.error(getErrorMessage(err, 'Error: failed to commit changes.'))
     } finally {
       setIsCommitting(false)
     }
   }
 
   const handleNewBranch = async () => {
-    if (!id || !confirmDiscard()) return
-    const name = window.prompt('New branch name (branched from ' + (activeBranch?.name || 'default') + '):')
-    if (!name || !name.trim()) return
+    if (!id || !(await confirmDiscard())) return
+    const name = await dialog.prompt({
+      title: 'Create a branch',
+      description: <>Branches from <strong>{activeBranch?.name || 'the default branch'}</strong> with all of its files.</>,
+      label: 'Branch name',
+      placeholder: 'feature/my-change',
+      hint: 'Letters, numbers, ".", "-", "_" and "/"',
+      confirmLabel: 'Create branch',
+      mono: true,
+      validate: (value) =>
+        !/^[A-Za-z0-9._/-]{1,100}$/.test(value) || /(^\/|\/$|\/\/|\.\.)/.test(value)
+          ? 'Use letters, numbers, ".", "-", "_" and "/" (no leading/trailing or double slashes)'
+          : branches.some((b) => b.name === value) ? 'A branch with that name already exists' : null,
+    })
+    if (!name) return
     try {
-      const branch = await createBranch(id, name.trim(), activeBranch?.id)
+      const branch = await createBranch(id, name, activeBranch?.id)
       const updated = await getBranches(id)
       setBranches(updated)
       setActiveBranch(branch)
       setIsBranchOpen(false)
-      showNotification(`Branch "${branch.name}" created.`)
+      toast.success(`Branch "${branch.name}" created.`)
     } catch (err) {
-      showNotification(getErrorMessage(err, 'Error: failed to create branch.'))
+      toast.error(getErrorMessage(err, 'Error: failed to create branch.'))
     }
   }
 
@@ -268,11 +302,22 @@ export default function RepoView() {
   }
 
   const handleNewFile = async () => {
-    if (!id || !activeBranch || !confirmDiscard()) return
-    const path = window.prompt('New file path (e.g. src/main.py):')
-    if (!path || !path.trim()) return
+    if (!id || !activeBranch || !(await confirmDiscard())) return
+    const path = await dialog.prompt({
+      title: 'Create a file',
+      description: <>On branch <strong>{activeBranch.name}</strong>. Folders are created from the path.</>,
+      label: 'File path',
+      placeholder: 'src/main.py',
+      confirmLabel: 'Create file',
+      mono: true,
+      validate: (value) =>
+        value.startsWith('/') || value.split('/').some((seg) => !seg || seg === '.' || seg === '..')
+          ? 'Use a relative path like src/main.py'
+          : files.some((f) => f.path === value) ? 'A file with that path already exists' : null,
+    })
+    if (!path) return
     try {
-      const file = await saveFile(id, activeBranch.id, path.trim(), '')
+      const file = await saveFile(id, activeBranch.id, path, '')
       const updated = await getFiles(id, activeBranch.id)
       setFiles(updated)
       const created = updated.find(f => f.path === file.path)
@@ -280,9 +325,9 @@ export default function RepoView() {
         setActiveFile(created)
         setIsDirty(false)
       }
-      showNotification(`Created ${file.path}.`)
+      toast.success(`Created ${file.path}.`)
     } catch (err) {
-      showNotification(getErrorMessage(err, 'Error: failed to create file.'))
+      toast.error(getErrorMessage(err, 'Error: failed to create file.'))
     }
   }
 
@@ -296,7 +341,7 @@ export default function RepoView() {
       setAIExplanation(res.explanation)
     } catch (err) {
       console.error(err)
-      showNotification('Error: AI explanation failed.')
+      toast.error('AI explanation failed.')
     } finally {
       setIsAIExplaining(false)
     }
@@ -430,12 +475,6 @@ export default function RepoView() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const [notification, setNotification] = useState<string | null>(null)
-
-  const showNotification = (msg: string) => {
-    setNotification(msg)
-    setTimeout(() => setNotification(null), 3000)
-  }
 
   const handleEditorChange = (value: string | undefined) => {
     if (value !== undefined && activeFile) {
@@ -508,12 +547,12 @@ export default function RepoView() {
           <motion.div
             className={`${styles['file-tree-item']} ${isActive ? styles['file-tree-item--active'] : ''}`}
             style={{ paddingLeft: `${depth * 12 + 12}px`, cursor: 'pointer' }}
-            onClick={() => {
+            onClick={async () => {
               if (node.isFolder) {
                 toggleFolder(node.path)
               } else {
                 const file = files.find(f => f.id === node.id)
-                if (file && file.id !== activeFile?.id && confirmDiscard()) {
+                if (file && file.id !== activeFile?.id && (await confirmDiscard())) {
                   setActiveFile(file)
                   setIsDirty(false)
                   setAIExplanation(null) // Reset AI box for NEW file
@@ -654,9 +693,9 @@ export default function RepoView() {
                       <button
                         key={b.id}
                         className={`dropdown-item ${activeBranch?.id === b.id ? 'active' : ''}`}
-                        onClick={() => {
-                          if (b.id !== activeBranch?.id && confirmDiscard()) setActiveBranch(b)
+                        onClick={async () => {
                           setIsBranchOpen(false)
+                          if (b.id !== activeBranch?.id && (await confirmDiscard())) setActiveBranch(b)
                         }}
                       >
                         {b.name} {b.is_default && '(default)'}
@@ -719,19 +758,6 @@ export default function RepoView() {
             )}
           </AnimatePresence>
 
-          {/* Notification Toast */}
-          <AnimatePresence>
-            {notification && (
-              <motion.div
-                initial={{ opacity: 0, y: 50 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 50 }}
-                className={styles['notification-toast']}
-              >
-                {notification}
-              </motion.div>
-            )}
-          </AnimatePresence>
 
           <NewIssueModal
             isOpen={isIssueModalOpen}
@@ -823,7 +849,7 @@ export default function RepoView() {
 
                           <button
                             className={styles['editor-close']}
-                            onClick={() => { if (confirmDiscard()) { setActiveFile(null); setIsDirty(false) } }}
+                            onClick={async () => { if (await confirmDiscard()) { setActiveFile(null); setIsDirty(false) } }}
                           >
                             <X size={16} />
                           </button>

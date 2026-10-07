@@ -123,8 +123,8 @@
   margin-top: var(--spacing-sm);
   width: 100%;
   padding: 12px;
-  background: var(--accent-primary);
-  color: white;
+  background: var(--molten);
+  color: var(--on-molten);
   border: none;
   border-radius: 8px;
   font-family: var(--font-sans);
@@ -139,7 +139,7 @@
 }
 
 .auth-submit:hover:not(:disabled) {
-  background: var(--accent-primary-hover);
+  background: var(--molten-hover);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
 }

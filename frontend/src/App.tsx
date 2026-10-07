@@ -16,6 +16,7 @@ import Profile from './pages/Profile/Profile'
 import Auth from './pages/Auth/Auth'
 import AdminDashboard from './pages/Admin/AdminDashboard'
 import CommitDetail from './pages/Commits/CommitDetail'
+import StyleGuide from './pages/StyleGuide/StyleGuide'
 import ProtectedRoute from './components/ProtectedRoute/ProtectedRoute'
 
 function App() {
@@ -23,6 +24,7 @@ function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/auth" element={<Auth />} />
+      <Route path="/styleguide" element={<StyleGuide />} />
 
       {/* Protected Routes */}
       <Route element={<ProtectedRoute />}>

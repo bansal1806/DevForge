@@ -171,8 +171,8 @@
 }
 
 .submit-btn {
-  background: var(--accent-neon);
-  color: white;
+  background: var(--molten);
+  color: var(--on-molten);
   border: none;
   padding: 10px 20px;
   border-radius: 10px;

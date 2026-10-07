@@ -30,6 +30,9 @@ jobs:
       - name: Backend tests
         run: npm test --workspace backend
 
+      - name: Design token contrast (WCAG AA, both themes)
+        run: npm run check:contrast --workspace frontend
+
       - name: Lint frontend
         run: npm run lint --workspace frontend
 
