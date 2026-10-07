@@ -1,5 +1,6 @@
 import cx from 'classnames'
 import type { CSSProperties, HTMLAttributes, ReactNode } from 'react'
+import { trackHeat } from '../../lib/heat'
 import styles from './Primitives.module.css'
 
 /* ------------------------------------------------------------------ */
@@ -11,9 +12,15 @@ interface CardProps extends HTMLAttributes<HTMLDivElement> {
   interactive?: boolean
 }
 
-export function Card({ padding = 'md', interactive, className, ...rest }: CardProps) {
+export function Card({ padding = 'md', interactive, className, onPointerMove, ...rest }: CardProps) {
   const pad = { none: undefined, sm: styles.padSm, md: styles.padMd, lg: styles.padLg }[padding]
-  return <div className={cx(styles.card, pad, interactive && styles.interactive, className)} {...rest} />
+  return (
+    <div
+      className={cx(styles.card, pad, interactive && styles.interactive, interactive && 'heat-surface', className)}
+      onPointerMove={interactive ? (e) => { trackHeat(e); onPointerMove?.(e) } : onPointerMove}
+      {...rest}
+    />
+  )
 }
 
 /* ------------------------------------------------------------------ */

@@ -6,6 +6,7 @@ import Editor from '@monaco-editor/react'
 import { useRepoRealtime, type FileChange } from '../../lib/useRepoRealtime'
 import { useDialog, toast, EmptyState, Skeleton } from '../../components/ui'
 import { CommitGraph } from '../../components/CommitGraph/CommitGraph'
+import { TerminalOutput } from '../../components/TerminalOutput/TerminalOutput'
 import { sparkBurst } from '../../lib/sparks'
 import { useRegisterCommands } from '../../contexts/CommandPalette'
 import type { PaletteCommand } from '../../contexts/CommandPalette'
@@ -120,6 +121,8 @@ export default function RepoView() {
   // Execution State
   const [isRunning, setIsRunning] = useState(false)
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null)
+  const [runId, setRunId] = useState(0)
+  const [runDuration, setRunDuration] = useState<number | null>(null)
   const [showTerminal, setShowTerminal] = useState(false)
   const [repoMetrics, setRepoMetrics] = useState<ExecutionStat[]>([])
 
@@ -361,6 +364,8 @@ export default function RepoView() {
     setIsRunning(true)
     setShowTerminal(true)
     setExecutionResult(null)
+    setRunDuration(null)
+    const started = performance.now()
 
     try {
       // Persist unsaved edits first so what runs is what's on screen
@@ -369,6 +374,7 @@ export default function RepoView() {
         setIsDirty(false)
       }
       const result = await runFile(id, activeFile.path, activeBranch?.id)
+      setRunDuration(performance.now() - started)
       setExecutionResult(result)
     } catch (err) {
       setExecutionResult({
@@ -377,6 +383,7 @@ export default function RepoView() {
         exitCode: 1
       })
     } finally {
+      setRunId((n) => n + 1)
       setIsRunning(false)
     }
   }
@@ -953,35 +960,15 @@ export default function RepoView() {
                               animate={{ height: 250 }}
                               exit={{ height: 0 }}
                             >
-                              <div className={styles['terminal-header']}>
-                                <div className={styles['terminal-title']}>
-                                  <Terminal size={14} /> Terminal Output
-                                </div>
-                                <div className={styles['terminal-actions']}>
-                                  <button onClick={() => setExecutionResult(null)}>Clear</button>
-                                  <button onClick={() => setShowTerminal(false)}><X size={14} /></button>
-                                </div>
-                              </div>
-                              <div className={styles['terminal-body']}>
-                                {isRunning && (
-                                  <div className={styles['terminal-loading']}>
-                                    <Loader2 size={16} className="animate-spin" />
-                                    Executing environment...
-                                  </div>
-                                )}
-                                {executionResult && (
-                                  <pre className={styles['terminal-pre']}>
-                                    {executionResult.stdout && <div className={styles['stdout']}>{executionResult.stdout}</div>}
-                                    {executionResult.stderr && <div className={styles['stderr']}>{executionResult.stderr}</div>}
-                                    <div className={styles['exit-line']}>
-                                      Process exited with code {executionResult.exitCode}
-                                    </div>
-                                  </pre>
-                                )}
-                                {!isRunning && !executionResult && (
-                                  <div className={styles['terminal-empty']}>Ready for execution. Click "Run" to start.</div>
-                                )}
-                              </div>
+                              <TerminalOutput
+                                fileName={activeFile.path}
+                                running={isRunning}
+                                result={executionResult}
+                                runId={runId}
+                                durationMs={runDuration}
+                                onClear={() => setExecutionResult(null)}
+                                onClose={() => setShowTerminal(false)}
+                              />
                             </motion.div>
                           )}
                         </AnimatePresence>

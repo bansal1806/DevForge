@@ -11,6 +11,8 @@ import {
 import { fadeUp, stagger } from '../../lib/motion'
 import { sparkBurst } from '../../lib/sparks'
 import { CommitGraph } from '../../components/CommitGraph/CommitGraph'
+import { TerminalOutput } from '../../components/TerminalOutput/TerminalOutput'
+import type { ExecutionResult } from '../../lib/api'
 import type { Commit } from '../../lib/api'
 import styles from './StyleGuide.module.css'
 
@@ -50,6 +52,20 @@ function sampleCommits(): Commit[] {
     { ...base, id: 'c3a9b8c7d6e5', message: 'Add binary search example', created_at: ago(60 * 5), author: { id: 'a', name: 'Ada Lovelace', avatar_url: null }, parent_id: 'c1' },
     { ...base, id: 'c1f0e9d8c7b6', message: 'Initial commit: fibonacci and quicksort', created_at: ago(60 * 24 * 9), author: { id: 'c', name: 'Linus Torvalds', avatar_url: null }, parent_id: null },
   ]
+}
+
+const FIB_OUTPUT = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34].map((v, i) => `fib(${i}) = ${v}`).join('\n') + '\n'
+const SAMPLE_RUNS: Record<'ok' | 'fail' | 'timeout', { result: ExecutionResult, ms: number }> = {
+  ok: { result: { stdout: FIB_OUTPUT, stderr: '', exitCode: 0 }, ms: 842 },
+  fail: {
+    result: {
+      stdout: 'Sorting...\n',
+      stderr: 'Traceback (most recent call last):\n  File "quicksort.py", line 4, in <module>\n    pivot = arr[0]\nIndexError: list index out of range\n',
+      exitCode: 1,
+    },
+    ms: 412,
+  },
+  timeout: { result: { stdout: '', stderr: 'Execution timed out after 10s', exitCode: 124, timedOut: true }, ms: 10012 },
 }
 
 const PEOPLE = [
@@ -128,6 +144,12 @@ export default function StyleGuide() {
   const [listKey, setListKey] = useState(0)
   const [nameError, setNameError] = useState<string | null>('That name is already taken')
   const [commits] = useState(sampleCommits)
+  const [run, setRun] = useState<{ running: boolean, result: ExecutionResult | null, id: number, ms: number | null }>({ running: false, result: null, id: 0, ms: null })
+
+  const simulateRun = (kind: keyof typeof SAMPLE_RUNS) => {
+    setRun((r) => ({ ...r, running: true, result: null, ms: null }))
+    window.setTimeout(() => setRun((r) => ({ running: false, result: SAMPLE_RUNS[kind].result, id: r.id + 1, ms: SAMPLE_RUNS[kind].ms })), 1200)
+  }
 
   const runLoading = (e: React.MouseEvent<HTMLButtonElement>) => {
     const button = e.currentTarget
@@ -288,6 +310,25 @@ export default function StyleGuide() {
           <Card padding="sm">
             <CommitGraph commits={commits} repoId="demo" />
           </Card>
+        </Section>
+
+        <Section id="terminal" title="Run output" description="A heating bar while code runs, output printed like a terminal, then a status pill that cools green — or shakes red.">
+          <div className={styles.row}>
+            <Button variant="primary" size="sm" iconLeft={<Play size={14} />} onClick={() => simulateRun('ok')}>Run success</Button>
+            <Button size="sm" onClick={() => simulateRun('fail')}>Run failure</Button>
+            <Button size="sm" variant="ghost" onClick={() => simulateRun('timeout')}>Run timeout</Button>
+          </div>
+          <div style={{ height: 260, borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--color-border)' }}>
+            <TerminalOutput
+              fileName="fibonacci.py"
+              running={run.running}
+              result={run.result}
+              runId={run.id}
+              durationMs={run.ms}
+              onClear={() => setRun((r) => ({ ...r, result: null }))}
+              onClose={() => undefined}
+            />
+          </div>
         </Section>
 
         <Section id="loading" title="Loading & empty states" description="Skeletons replace 'Loading...' text; the shimmer stops under reduced motion.">

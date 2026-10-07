@@ -112,6 +112,27 @@ button, input, select, textarea {
   }
 }
 
+/* Cursor heat — pair with lib/heat.ts trackHeat on pointermove */
+.heat-surface {
+  position: relative;
+  isolation: isolate;
+}
+.heat-surface::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(260px circle at var(--heat-x, 50%) var(--heat-y, 50%), var(--color-ember-soft), transparent 70%);
+  opacity: 0;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.heat-surface:hover::after { opacity: 1; }
+@media (hover: none) {
+  .heat-surface::after { display: none; }
+}
+
 /* ------------------------------------------------------------------ */
 /* Legacy utilities — still used by pages awaiting their redesign.     */
 /* New code should use components/ui instead.                          */
