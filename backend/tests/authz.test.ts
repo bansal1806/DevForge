@@ -230,6 +230,21 @@ describe('issues and gists', () => {
   });
 });
 
+describe('public stats', () => {
+  it('returns real aggregate counts without counting private repositories', async () => {
+    const { resetStatsCache } = await import('../src/routes/stats');
+    resetStatsCache();
+    mocks.db.seed('pull_requests', [{ repo_id: ids.publicRepo, status: 'merged' }]);
+    mocks.db.seed('users', [{ name: 'a' }, { name: 'b' }]);
+
+    const res = await request(app).get('/api/stats');
+    expect(res.status).toBe(200);
+    // seeded: 1 public + 2 private repos, 0 commits, 1 merged PR, 2 users
+    expect(res.body).toEqual({ publicRepositories: 1, commits: 0, mergedPullRequests: 1, developers: 2 });
+    expect(res.headers['cache-control']).toContain('max-age=300');
+  });
+});
+
 describe('HTTP hygiene', () => {
   it('returns 413 for oversized JSON bodies and 400 for malformed JSON', async () => {
     // The server rejects on Content-Length before reading the body, so the

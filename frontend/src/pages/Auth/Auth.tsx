@@ -5,6 +5,7 @@ import { GitBranch, Mail, Lock, AlertCircle, Loader2, Sparkles } from 'lucide-re
 import { supabase } from '../../lib/supabase'
 import { apiClient, getErrorMessage } from '../../lib/api'
 import { toast } from '../../components/ui'
+import { signInToDemo } from '../../lib/demoLogin'
 import styles from './Auth.module.css'
 
 export default function Auth() {
@@ -20,12 +21,7 @@ export default function Auth() {
     setDemoLoading(true)
     setError(null)
     try {
-      const { data: result } = await apiClient.post('/api/auth/demo')
-      const { error: sessionError } = await supabase.auth.setSession({
-        access_token: result.session.access_token,
-        refresh_token: result.session.refresh_token,
-      })
-      if (sessionError) throw sessionError
+      await signInToDemo()
       navigate('/dashboard')
     } catch (err) {
       setError(getErrorMessage(err, 'Demo access failed'))

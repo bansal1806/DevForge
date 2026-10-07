@@ -15,6 +15,7 @@ import activityRoutes from './routes/activity';
 import aiRoutes from './routes/ai';
 import executeRoutes from './routes/execute';
 import adminRoutes from './routes/admin';
+import statsRoutes from './routes/stats';
 
 import { blockBots, limitPayloadSize } from './middleware/abuseProtection';
 import { PostgresRateLimitStore } from './middleware/rateLimitStore';
@@ -153,6 +154,7 @@ app.use('/api/activity', activityRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/execute', executeRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/stats', statsRoutes);
 
 // 404 handler
 app.use((_req, res) => {

@@ -500,6 +500,19 @@ export async function updateProfile(updates: { name?: string, bio?: string, avat
   return data
 }
 
+// Public platform stats (landing page)
+export interface PlatformStats {
+  publicRepositories: number
+  commits: number
+  mergedPullRequests: number
+  developers: number
+}
+
+export async function getPlatformStats(): Promise<PlatformStats> {
+  const { data } = await apiClient.get<PlatformStats>('/api/stats')
+  return data
+}
+
 // Admin & Observability
 export interface SystemHealth {
   api: 'online' | 'offline' | 'error'
