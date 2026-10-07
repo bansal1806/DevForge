@@ -7,6 +7,8 @@ import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { DialogProvider, Toaster } from './components/ui'
+import { CommandPaletteProvider } from './contexts/CommandPalette'
+import { CommandPalette } from './components/CommandPalette/CommandPalette'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -16,8 +18,11 @@ createRoot(document.getElementById('root')!).render(
         <BrowserRouter>
           <AuthProvider>
             <DialogProvider>
-              <App />
-              <Toaster />
+              <CommandPaletteProvider>
+                <App />
+                <CommandPalette />
+                <Toaster />
+              </CommandPaletteProvider>
             </DialogProvider>
           </AuthProvider>
         </BrowserRouter>

@@ -6,6 +6,8 @@ import Editor from '@monaco-editor/react'
 import { useRepoRealtime, type FileChange } from '../../lib/useRepoRealtime'
 import { useDialog, toast } from '../../components/ui'
 import { sparkBurst } from '../../lib/sparks'
+import { useRegisterCommands } from '../../contexts/CommandPalette'
+import type { PaletteCommand } from '../../contexts/CommandPalette'
 import { useStore } from '../../store/useStore'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -55,7 +57,8 @@ import {
   LineChart as LineChartIcon,
   Clock,
   PieChart as PieChartIcon,
-  History
+  History,
+  FilePlus
 } from 'lucide-react'
 import styles from './RepoView.module.css'
 import NewIssueModal from '../../components/Modals/NewIssueModal'
@@ -228,7 +231,7 @@ export default function RepoView() {
 
   // Save the active file's content to the current branch
   const handleSave = async () => {
-    if (!activeFile || !id || !activeBranch) return
+    if (!canWrite || !activeFile || !id || !activeBranch) return
     setIsSaving(true)
     try {
       await saveFile(id, activeBranch.id, activeFile.path, activeFile.content || '')
@@ -593,6 +596,61 @@ export default function RepoView() {
       )
     })
   }
+
+  // Ctrl/Cmd+S saves the open file (and never triggers the browser's save dialog)
+  const saveRef = useRef(handleSave)
+  useEffect(() => { saveRef.current = handleSave })
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        saveRef.current()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  // Repository actions in the command palette (Ctrl/Cmd+K)
+  const repoCommands: PaletteCommand[] = [
+    ...(canWrite && activeFile && isDirty
+      ? [{ id: 'repo-save', label: `Save ${activeFile.path}`, icon: <Save size={16} />, shortcut: ['Ctrl', 'S'], perform: handleSave }]
+      : []),
+    ...(activeFile
+      ? [{ id: 'repo-run', label: `Run ${activeFile.path}`, icon: <Play size={16} />, keywords: ['execute'], perform: handleRun }]
+      : []),
+    ...(canWrite
+      ? [
+          { id: 'repo-commit', label: 'Commit changes', icon: <GitCommitHorizontal size={16} />, hint: activeBranch?.name, perform: () => { setActiveTab('Code'); setShowCommitBox(true) } },
+          { id: 'repo-new-branch', label: 'New branch', icon: <GitBranch size={16} />, perform: handleNewBranch },
+          { id: 'repo-new-file', label: 'New file', icon: <FilePlus size={16} />, perform: handleNewFile },
+        ]
+      : []),
+    {
+      id: 'repo-star',
+      label: activeRepo?.starred_by_me ? 'Unstar repository' : 'Star repository',
+      icon: <Star size={16} />,
+      perform: handleToggleStar,
+    },
+    ...tabDefs
+      .filter((tab) => tab.label !== activeTab && (tab.label !== 'Settings' || isOwner))
+      .map((tab) => ({
+        id: `repo-tab-${tab.label}`,
+        label: `Go to ${tab.label}`,
+        icon: <tab.icon size={16} />,
+        perform: () => setActiveTab(tab.label),
+      })),
+    ...branches
+      .filter((b) => b.id !== activeBranch?.id)
+      .map((b) => ({
+        id: `repo-branch-${b.id}`,
+        label: `Switch to branch ${b.name}`,
+        icon: <GitBranch size={16} />,
+        keywords: ['checkout', b.name],
+        perform: async () => { if (await confirmDiscard()) setActiveBranch(b) },
+      })),
+  ]
+  useRegisterCommands(activeRepo ? `In ${activeRepo.name}` : 'This repository', repoCommands)
 
   const treeData = buildTree(files)
 

@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link, useNavigate } from 'react-router-dom'
-import { Search, Bell, Plus, GitBranch, Command, GitFork, User, Shield, LogOut, Code2, Bug } from 'lucide-react'
+import { Search, Bell, Plus, GitBranch, GitFork, User, Shield, LogOut, Code2, Bug } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useStore } from '../../store/useStore'
 import { supabase } from '../../lib/supabase'
 import { getCurrentUser } from '../../lib/api'
+import { useCommandPalette, useRegisterCommands } from '../../contexts/CommandPalette'
+import { Kbd } from '../ui'
 import NewRepositoryModal from '../Modals/NewRepositoryModal'
 import NewGistModal from '../Modals/NewGistModal'
 import styles from './Navbar.module.css'
@@ -15,7 +17,7 @@ export default function Navbar() {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
   const [isNewRepoOpen, setIsNewRepoOpen] = useState(false)
   const [isNewGistOpen, setIsNewGistOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
+  const { setOpen: openPalette } = useCommandPalette()
   const navRef = useRef<HTMLElement>(null)
   const { user } = useAuth()
   const [isAdmin, setIsAdmin] = useState(false)
@@ -37,24 +39,11 @@ export default function Navbar() {
     setActiveDropdown(null)
   }
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value)
-  }
-
-  const handleSubmitSearch = (e?: React.FormEvent) => {
-    e?.preventDefault()
-    if (searchQuery.trim()) {
-      navigate(`/explore?q=${encodeURIComponent(searchQuery)}`)
-      setSearchQuery('')
-      setActiveDropdown(null)
-    }
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSubmitSearch()
-    }
-  }
+  // Global actions available from the command palette
+  useRegisterCommands('Create', [
+    { id: 'create-repo', label: 'New repository', icon: <GitFork size={16} />, keywords: ['create', 'repo'], perform: () => setIsNewRepoOpen(true) },
+    { id: 'create-gist', label: 'New gist', icon: <Code2 size={16} />, keywords: ['create', 'snippet'], perform: () => setIsNewGistOpen(true) },
+  ])
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -92,21 +81,19 @@ export default function Navbar() {
 
       {/* Search Bar */}
       <div className={styles['navbar-center']}>
-        <div className={styles['navbar-search']}>
+        <button
+          type="button"
+          className={styles['navbar-search']}
+          onClick={() => openPalette(true)}
+          aria-label="Open command palette"
+          aria-keyshortcuts="Control+K Meta+K"
+        >
           <Search size={16} className={styles['navbar-search-icon']} />
-          <input
-            type="text"
-            placeholder="Search repositories, code, users..."
-            className={styles['navbar-search-input']}
-            id="global-search-input"
-            value={searchQuery}
-            onChange={handleSearchChange}
-            onKeyDown={handleKeyDown}
-          />
+          <span className={styles['navbar-search-placeholder']}>Search or jump to…</span>
           <span className={styles['navbar-search-shortcut']}>
-            <Command size={10} /> K
+            <Kbd>Ctrl</Kbd><Kbd>K</Kbd>
           </span>
-        </div>
+        </button>
       </div>
 
       {/* Actions */}
@@ -120,7 +107,7 @@ export default function Navbar() {
           >
             <Plus size={16} /> New
           </motion.button>
-          
+
           <AnimatePresence>
             {activeDropdown === 'new' && (
               <motion.div className="dropdown-menu" variants={dropdownVariants} initial="hidden" animate="visible" exit="exit">
@@ -133,8 +120,8 @@ export default function Navbar() {
         </div>
 
         <div style={{ position: 'relative' }}>
-          <button 
-            className={styles['navbar-action-btn']} 
+          <button
+            className={styles['navbar-action-btn']}
             onClick={() => setActiveDropdown(activeDropdown === 'notifications' ? null : 'notifications')}
           >
             <Bell size={18} />
@@ -153,14 +140,14 @@ export default function Navbar() {
         </div>
 
         <div style={{ position: 'relative' }}>
-          <div 
-            className={styles['navbar-avatar']} 
+          <div
+            className={styles['navbar-avatar']}
             onClick={() => setActiveDropdown(activeDropdown === 'avatar' ? null : 'avatar')}
             style={{ cursor: 'pointer', textTransform: 'uppercase' }}
           >
             {user?.email ? user.email.charAt(0) : 'U'}
           </div>
-          
+
           <AnimatePresence>
             {activeDropdown === 'avatar' && (
               <motion.div className="dropdown-menu" variants={dropdownVariants} initial="hidden" animate="visible" exit="exit">
@@ -178,9 +165,9 @@ export default function Navbar() {
         </div>
       </div>
 
-      <NewRepositoryModal 
-        isOpen={isNewRepoOpen} 
-        onClose={() => setIsNewRepoOpen(false)} 
+      <NewRepositoryModal
+        isOpen={isNewRepoOpen}
+        onClose={() => setIsNewRepoOpen(false)}
         onSuccess={() => {
           setLoading(true)
           import('../../lib/api').then(api => api.getRepositories()).then(setRepositories).finally(() => setLoading(false))
@@ -193,7 +180,7 @@ export default function Navbar() {
         onSuccess={() => {
           // If on gists page, the list will need refresh. For now just show toast or let user navigate.
           if (window.location.pathname === '/gists') {
-             window.location.reload(); 
+             window.location.reload();
           }
         }}
       />
