@@ -143,6 +143,7 @@ function StatsStrip() {
 }
 
 export default function Landing() {
+  useEffect(() => { document.title = 'DevForge — Forge Your Code' }, [])
   const { user } = useAuth()
   const navigate = useNavigate()
   const [demoLoading, setDemoLoading] = useState(false)
@@ -165,7 +166,7 @@ export default function Landing() {
 
   return (
     <div className={styles.page}>
-      <a href="#main" className={styles.skip}>Skip to content</a>
+      <a href="#main" className="skip-link">Skip to content</a>
 
       <header className={styles.nav}>
         <Link to="/" className={styles.brand} aria-label="DevForge home">
@@ -191,7 +192,7 @@ export default function Landing() {
         </div>
       </header>
 
-      <main id="main">
+      <main id="main" tabIndex={-1}>
         <section className={styles.hero}>
           <div className={styles.heroGlow} aria-hidden="true" />
           <motion.div className={styles.heroCopy} initial="hidden" animate="visible" variants={stagger(0.08)}>

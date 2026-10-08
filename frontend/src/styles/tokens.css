@@ -151,20 +151,20 @@
 
   --color-ember: #e8541b;
   --color-ember-strong: #c94511;
-  --color-ember-text: #b8400f;
+  --color-ember-text: #a8380b;
   --color-ember-soft: rgba(232, 84, 27, 0.1);
   --color-ember-glow: rgba(232, 84, 27, 0.25);
 
   --color-steel: #4f6478;
   --color-steel-soft: rgba(79, 100, 120, 0.1);
 
-  --color-success: #17794a;
+  --color-success: #156d43;
   --color-success-soft: rgba(23, 121, 74, 0.1);
-  --color-danger: #c42b2b;
+  --color-danger: #b42828;
   --color-danger-soft: rgba(196, 43, 43, 0.09);
-  --color-warning: #9a5a00;
+  --color-warning: #8c5200;
   --color-warning-soft: rgba(196, 122, 0, 0.12);
-  --color-info: #2a62c9;
+  --color-info: #275ab9;
   --color-info-soft: rgba(42, 98, 201, 0.1);
   --color-violet: #6d45d6;
   --color-teal: #0f7f76;

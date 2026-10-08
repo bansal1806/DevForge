@@ -89,6 +89,16 @@ for (const [name, vars] of Object.entries(themes)) {
     }
   }
 
+  // Tinted chips sit on raised surfaces too (e.g. an ember badge in a surface-2 header)
+  for (const [fg, soft] of [['--color-ember-text', '--color-ember-soft'], ['--color-success', '--color-success-soft'], ['--color-danger', '--color-danger-soft'], ['--color-info', '--color-info-soft'], ['--color-warning', '--color-warning-soft'], ['--color-steel', '--color-steel-soft']]) {
+    const raised = parse(vars['--color-surface-2']);
+    const chip = blend(parse(vars[soft]), raised);
+    const r = ratio(resolve(fg), chip);
+    const ok = r >= TEXT;
+    if (!ok) failures++;
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${fg} on ${soft} over --color-surface-2: ${r.toFixed(2)} (min ${TEXT})`);
+  }
+
   // Dark text on every molten gradient stop (primary buttons)
   for (const stop of ['#ff4d1f', '#ff7a2f', '#ffb347']) {
     const r = ratio(parse(shared['--on-molten']), parse(stop));

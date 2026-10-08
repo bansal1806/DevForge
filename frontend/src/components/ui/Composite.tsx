@@ -152,7 +152,7 @@ export function Avatar({ name, src, size = 32, live, className }: AvatarProps) {
       aria-label={live ? `${label} (online)` : label}
       title={label}
     >
-      {src && !broken ? <img src={src} alt="" onError={() => setBroken(true)} /> : initials}
+      {src && !broken ? <img src={src} alt="" onError={() => setBroken(true)} /> : <span className={styles.initials} data-initials={initials} />}
     </span>
   )
 }
@@ -222,18 +222,22 @@ const THEME_OPTIONS: { value: ThemePreference, label: string, icon: ReactNode }[
   { value: 'light', label: 'Day', icon: <Sun size={14} /> },
 ]
 
-export function ThemeToggle({ showLabels = true }: { showLabels?: boolean }) {
+/**
+ * Night / Day / System switch. Inside a role="menu" pass `inMenu` so the
+ * options are menuitemradios (valid menu children, reachable with arrow keys).
+ */
+export function ThemeToggle({ showLabels = true, inMenu = false }: { showLabels?: boolean, inMenu?: boolean }) {
   const { preference, setPreference } = useTheme()
   const id = useId()
 
   return (
-    <div role="radiogroup" aria-label="Color theme" className={styles.segmented}>
+    <div role={inMenu ? 'group' : 'radiogroup'} aria-label="Color theme" className={styles.segmented}>
       {THEME_OPTIONS.map((opt) => {
         const active = preference === opt.value
         return (
           <button
             key={opt.value}
-            role="radio"
+            role={inMenu ? 'menuitemradio' : 'radio'}
             aria-checked={active}
             aria-label={opt.label}
             title={opt.label}

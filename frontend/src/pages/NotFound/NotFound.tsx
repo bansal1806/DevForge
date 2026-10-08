@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Home, Compass } from 'lucide-react'
 import { AnvilArt, LinkButton } from '../../components/ui'
@@ -17,6 +17,7 @@ const STRIKE_LINES = [
 
 /** A forge-themed 404 — the anvil throws sparks when you strike it. */
 export default function NotFound() {
+  useEffect(() => { document.title = 'Page not found · DevForge' }, [])
   const [strikes, setStrikes] = useState(0)
 
   const strike = (e: React.MouseEvent<HTMLButtonElement>) => {

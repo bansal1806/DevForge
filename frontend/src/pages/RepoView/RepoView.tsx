@@ -14,6 +14,7 @@ import { FileTree } from '../../components/FileTree/FileTree'
 import { InsightsPanel } from './InsightsPanel'
 import { sparkBurst } from '../../lib/sparks'
 import { useRegisterCommands } from '../../contexts/CommandPalette'
+import { useMenu } from '../../lib/useMenu'
 import type { PaletteCommand } from '../../contexts/CommandPalette'
 import { useStore } from '../../store/useStore'
 import { useAuth } from '../../contexts/AuthContext'
@@ -188,7 +189,8 @@ export default function RepoView() {
       }
     }
   }
-  const branchRef = useRef<HTMLDivElement>(null)
+  const branchButtonRef = useRef<HTMLButtonElement>(null)
+  const branchMenuRef = useRef<HTMLDivElement>(null)
 
 
   // Save the active file's content to the current branch
@@ -442,15 +444,7 @@ export default function RepoView() {
   const displayName = (user?.user_metadata?.full_name as string | undefined) || user?.email?.split('@')[0] || 'User'
   const { users: activeUsers, sendFileChange } = useRepoRealtime(id, user?.id, displayName, handleRemoteChange)
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (branchRef.current && !branchRef.current.contains(event.target as Node)) {
-        setIsBranchOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+  useMenu(isBranchOpen, () => setIsBranchOpen(false), branchMenuRef, branchButtonRef)
 
 
   const handleEditorChange = (value: string | undefined) => {
@@ -616,8 +610,9 @@ export default function RepoView() {
         <div className={styles.workspace}>
           <aside className={styles.explorer} aria-label="Explorer">
             <div className={styles.explorerHead}>
-              <div className={styles.branchWrap} ref={branchRef}>
+              <div className={styles.branchWrap}>
                 <button
+                  ref={branchButtonRef}
                   className={styles.branchButton}
                   onClick={() => setIsBranchOpen(!isBranchOpen)}
                   aria-haspopup="menu"
@@ -630,18 +625,21 @@ export default function RepoView() {
                 <AnimatePresence>
                   {isBranchOpen && (
                     <motion.div
+                      ref={branchMenuRef}
                       role="menu"
+                      aria-label="Branches"
                       className={`dropdown-menu ${styles.branchMenu}`}
                       initial={{ opacity: 0, scale: 0.96, y: -4 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.97, y: -4 }}
                       transition={{ duration: 0.14 }}
                     >
-                      <div className={styles.menuLabel}>Switch branch</div>
+                      <div className={styles.menuLabel} role="presentation">Switch branch</div>
                       {branches.map((b) => (
                         <button
                           key={b.id}
-                          role="menuitem"
+                          role="menuitemradio"
+                          aria-checked={activeBranch?.id === b.id}
                           className={`dropdown-item ${activeBranch?.id === b.id ? 'active' : ''}`}
                           onClick={async () => {
                             setIsBranchOpen(false)
@@ -654,7 +652,7 @@ export default function RepoView() {
                       ))}
                       {canWrite && (
                         <>
-                          <div className="dropdown-divider" />
+                          <div className="dropdown-divider" role="separator" />
                           <button role="menuitem" className="dropdown-item" onClick={handleNewBranch}><Plus size={13} /> New branch</button>
                         </>
                       )}

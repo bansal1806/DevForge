@@ -42,6 +42,10 @@ export default function Auth() {
   const [error, setError] = useState<string | null>(null)
   const anvil = useRef<HTMLDivElement>(null)
 
+  useEffect(() => {
+    document.title = `${mode === 'signup' ? 'Create account' : 'Sign in'} · DevForge`
+  }, [mode])
+
   // A few ambient sparks off the anvil while the page is open
   useEffect(() => {
     const strike = () => sparkBurst(anvil.current, { count: 14, power: 5, spread: 120 })

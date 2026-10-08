@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useStore } from '../../store/useStore'
 import { supabase } from '../../lib/supabase'
 import { getCurrentUser, getRepositories } from '../../lib/api'
+import { useMenu } from '../../lib/useMenu'
 import { useCommandPalette, useRegisterCommands } from '../../contexts/CommandPalette'
 import { Avatar, Button, IconButton, Kbd, Modal, ThemeToggle } from '../ui'
 import NewRepositoryModal from '../Modals/NewRepositoryModal'
@@ -36,7 +37,6 @@ export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [displayName, setDisplayName] = useState<string | null>(null)
-  const navRef = useRef<HTMLElement>(null)
   const { user } = useAuth()
   const { setRepositories } = useStore()
   const { setOpen: openPalette } = useCommandPalette()
@@ -53,15 +53,13 @@ export default function Navbar() {
     return () => { cancelled = true }
   }, [user])
 
-  // Close menus on outside click / Escape
-  useEffect(() => {
-    if (!menu) return
-    const onDown = (e: MouseEvent) => { if (navRef.current && !navRef.current.contains(e.target as Node)) setMenu(null) }
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(null) }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
-  }, [menu])
+  const newTrigger = useRef<HTMLButtonElement>(null)
+  const newMenu = useRef<HTMLDivElement>(null)
+  const accountTrigger = useRef<HTMLButtonElement>(null)
+  const accountMenu = useRef<HTMLDivElement>(null)
+  const closeMenu = () => setMenu(null)
+  useMenu(menu === 'new', closeMenu, newMenu, newTrigger)
+  useMenu(menu === 'account', closeMenu, accountMenu, accountTrigger)
 
   useRegisterCommands('Create', [
     { id: 'create-repo', label: 'New repository', icon: <GitFork size={16} />, keywords: ['create', 'repo'], perform: () => setIsNewRepoOpen(true) },
@@ -77,7 +75,7 @@ export default function Navbar() {
   }
 
   return (
-    <header className={styles.navbar} ref={navRef}>
+    <header className={styles.navbar}>
       <IconButton className={styles.menuButton} label="Open navigation" icon={<Menu size={18} />} onClick={() => setMobileOpen(true)} />
 
       <Link to="/dashboard" className={styles.brand} aria-label="DevForge dashboard">
@@ -90,18 +88,18 @@ export default function Navbar() {
           type="button"
           className={styles.search}
           onClick={() => openPalette(true)}
-          aria-label="Search or jump to (command palette)"
           aria-keyshortcuts="Control+K Meta+K"
         >
           <Search size={16} />
           <span className={styles.searchText}>Search or jump to…</span>
-          <span className={styles.searchKeys}><Kbd>Ctrl</Kbd><Kbd>K</Kbd></span>
+          <span className={styles.searchKeys} aria-hidden="true"><Kbd>Ctrl</Kbd><Kbd>K</Kbd></span>
         </button>
       </div>
 
       <div className={styles.actions}>
         <div className={styles.menuWrap}>
           <Button
+            ref={newTrigger}
             variant="primary"
             size="sm"
             iconLeft={<Plus size={15} />}
@@ -113,7 +111,7 @@ export default function Navbar() {
           </Button>
           <AnimatePresence>
             {menu === 'new' && (
-              <motion.div role="menu" className="dropdown-menu" variants={dropdown} initial="hidden" animate="visible" exit="exit">
+              <motion.div ref={newMenu} role="menu" aria-label="Create" className="dropdown-menu" variants={dropdown} initial="hidden" animate="visible" exit="exit">
                 <button role="menuitem" className="dropdown-item" onClick={() => { setMenu(null); setIsNewRepoOpen(true) }}><GitFork size={14} /> New repository</button>
                 <button role="menuitem" className="dropdown-item" onClick={() => { setMenu(null); setIsNewGistOpen(true) }}><Code2 size={14} /> New gist</button>
               </motion.div>
@@ -123,8 +121,9 @@ export default function Navbar() {
 
         <div className={styles.menuWrap}>
           <button
+            ref={accountTrigger}
             className={styles.avatarButton}
-            aria-label={`Account menu for ${name}`}
+            aria-label={`${name} — account menu`}
             aria-haspopup="menu"
             aria-expanded={menu === 'account'}
             onClick={() => setMenu(menu === 'account' ? null : 'account')}
@@ -133,25 +132,25 @@ export default function Navbar() {
           </button>
           <AnimatePresence>
             {menu === 'account' && (
-              <motion.div role="menu" className={`dropdown-menu ${styles.accountMenu}`} variants={dropdown} initial="hidden" animate="visible" exit="exit">
-                <div className={styles.accountHead}>
+              <motion.div ref={accountMenu} role="menu" aria-label="Account" className={`dropdown-menu ${styles.accountMenu}`} variants={dropdown} initial="hidden" animate="visible" exit="exit">
+                <div className={styles.accountHead} aria-hidden="true">
                   <Avatar name={name} size={36} />
                   <div className={styles.accountText}>
                     <strong>{name}</strong>
                     <span>{user?.email}</span>
                   </div>
                 </div>
-                <div className="dropdown-divider" />
+                <div className="dropdown-divider" role="separator" />
                 <button role="menuitem" className="dropdown-item" onClick={() => { setMenu(null); navigate(`/profile/${user?.id}`) }}><User size={14} /> Your profile</button>
                 {isAdmin && (
                   <button role="menuitem" className="dropdown-item" onClick={() => { setMenu(null); navigate('/admin') }}><Shield size={14} /> Admin dashboard</button>
                 )}
-                <div className="dropdown-divider" />
-                <div className={styles.themeRow}>
-                  <span>Theme</span>
-                  <ThemeToggle showLabels={false} />
+                <div className="dropdown-divider" role="separator" />
+                <div className={styles.themeRow} role="presentation">
+                  <span aria-hidden="true">Theme</span>
+                  <ThemeToggle showLabels={false} inMenu />
                 </div>
-                <div className="dropdown-divider" />
+                <div className="dropdown-divider" role="separator" />
                 <button role="menuitem" className="dropdown-item" onClick={signOut}><LogOut size={14} /> Sign out</button>
               </motion.div>
             )}
