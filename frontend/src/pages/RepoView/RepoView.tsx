@@ -193,15 +193,21 @@ export default function RepoView() {
   const branchMenuRef = useRef<HTMLDivElement>(null)
 
 
+  // Persist the open buffer and keep the file list in sync (so switching tabs shows the saved text)
+  const persistActiveFile = async () => {
+    if (!activeFile || !id || !activeBranch) return
+    await saveFile(id, activeBranch.id, activeFile.path, activeFile.content || '')
+    setIsDirty(false)
+    setFiles(files.map((f) => (f.path === activeFile.path ? { ...f, content: activeFile.content } : f)))
+  }
+
   // Save the active file's content to the current branch
   const handleSave = async () => {
-    if (!canWrite || !activeFile || !id || !activeBranch) return
+    if (!canWrite || !activeFile || !id || !activeBranch || !isDirty) return
     setIsSaving(true)
     try {
-      await saveFile(id, activeBranch.id, activeFile.path, activeFile.content || '')
-      setIsDirty(false)
+      await persistActiveFile()
       toast.success('File saved. Commit your changes to record them in history.')
-      setFiles(files.map(f => (f.path === activeFile.path ? { ...f, content: activeFile.content } : f)))
     } catch (err) {
       toast.error(getErrorMessage(err, 'Error: failed to save file.'))
     } finally {
@@ -214,10 +220,7 @@ export default function RepoView() {
     if (!id || !activeBranch || !commitMessage.trim()) return
     setIsCommitting(true)
     try {
-      if (isDirty && activeFile) {
-        await saveFile(id, activeBranch.id, activeFile.path, activeFile.content || '')
-        setIsDirty(false)
-      }
+      if (isDirty) await persistActiveFile()
       await createCommit(id, activeBranch.id, commitMessage.trim())
       setCommitMessage('')
       setShowCommitBox(false)
@@ -267,7 +270,7 @@ export default function RepoView() {
       setActiveRepo({ ...activeRepo, starred_by_me: result.starred, stars_count: result.stars_count })
       if (result.starred) sparkBurst(starButtonRef.current, { count: 18, power: 5, spread: 220 })
     } catch (err) {
-      console.error(err)
+      toast.error(getErrorMessage(err, 'Could not update the star.'))
     } finally {
       setIsStarring(false)
     }
@@ -330,10 +333,7 @@ export default function RepoView() {
 
     try {
       // Persist unsaved edits first so what runs is what's on screen
-      if (isDirty && activeBranch) {
-        await saveFile(id, activeBranch.id, activeFile.path, activeFile.content || '')
-        setIsDirty(false)
-      }
+      if (isDirty && canWrite) await persistActiveFile()
       const result = await runFile(id, activeFile.path, activeBranch?.id)
       setRunDuration(performance.now() - started)
       setExecutionResult(result)
@@ -390,6 +390,9 @@ export default function RepoView() {
     return () => {
       setActiveRepo(null)
       setActiveFile(null)
+      setActiveBranch(null)
+      setBranches([])
+      setFiles([])
     }
   }, [id, setActiveRepo, setBranches, setActiveBranch, setActiveFile, setFiles, setLoading])
 
@@ -404,7 +407,9 @@ export default function RepoView() {
   }
 
   // 2. Fetch Files when the active branch changes
-  const activeBranchId = activeBranch?.id
+  // Only a branch of *this* repo: right after navigating between repos the store
+  // can still hold the previous repo's branch for one render
+  const activeBranchId = activeBranch?.repo_id === id ? activeBranch?.id : undefined
   useEffect(() => {
     if (!id || !activeBranchId) return
 
