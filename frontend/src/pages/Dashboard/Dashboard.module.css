@@ -101,6 +101,8 @@
 
 .more {
   display: inline-flex;
+  flex: none;
+  white-space: nowrap;
   align-items: center;
   gap: 4px;
   font-size: var(--text-sm);

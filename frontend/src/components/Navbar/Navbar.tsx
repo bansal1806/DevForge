@@ -100,6 +100,7 @@ export default function Navbar() {
         <div className={styles.menuWrap}>
           <Button
             ref={newTrigger}
+            aria-label="New"
             variant="primary"
             size="sm"
             iconLeft={<Plus size={15} />}

@@ -11,6 +11,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-height: 28px;
   width: fit-content;
   font-size: var(--text-sm);
   color: var(--color-text-muted);
