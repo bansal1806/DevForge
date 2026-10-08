@@ -7,7 +7,7 @@ export type ResolvedTheme = 'dark' | 'light'
 // Night Forge stays the default until every page has a Daylight design;
 // the inline script in index.html must use the same key and default.
 const STORAGE_KEY = 'devforge-theme'
-const DEFAULT_PREFERENCE: ThemePreference = 'dark'
+const DEFAULT_PREFERENCE: ThemePreference = 'system'
 
 interface ThemeContextValue {
   preference: ThemePreference
