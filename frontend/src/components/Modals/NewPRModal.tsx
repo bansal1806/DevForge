@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { X, GitPullRequest } from 'lucide-react'
+import { ArrowRight, Info } from 'lucide-react'
 import { createPullRequest, getErrorMessage } from '../../lib/api'
-import { sparkBurst } from '../../lib/sparks'
 import type { Branch } from '../../lib/api'
-import styles from './NewIssueModal.module.css' // Reuse modal styles
+import { sparkBurst } from '../../lib/sparks'
+import { Button, Input, Modal, Select, Textarea, toast } from '../ui'
+import styles from './Modals.module.css'
 
 interface NewPRModalProps {
   isOpen: boolean
@@ -23,142 +23,77 @@ export default function NewPRModal({ isOpen, onClose, onSuccess, repoId, branche
   const [error, setError] = useState<string | null>(null)
   const submitRef = useRef<HTMLButtonElement>(null)
 
-  // Auto-select default/target if branches are available
-  if (targetId === '' && branches.length > 0) {
-    const defaultBr = branches.find(b => b.is_default) || branches[0]
-    setTargetId(defaultBr.id)
-  }
+  // Target defaults to the default branch; source to the first other branch
+  const defaultBranch = branches.find((b) => b.is_default) || branches[0]
+  const target = targetId || defaultBranch?.id || ''
+  const source = sourceId || branches.find((b) => b.id !== target)?.id || ''
+  const sameBranch = !!source && source === target
+  const onlyOneBranch = branches.length < 2
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!sourceId || !targetId) {
-      setError('Please select both source and target branches.')
-      return
-    }
-    if (sourceId === targetId) {
-      setError('Source and target branches must be different.')
-      return
-    }
-
+    if (!title.trim() || !source || !target || sameBranch) return
     setLoading(true)
     setError(null)
-
     try {
-      await createPullRequest({
-        repoId,
-        sourceBranchId: sourceId,
-        targetBranchId: targetId,
-        title,
-        description
-      })
+      await createPullRequest({ repoId, sourceBranchId: source, targetBranchId: target, title: title.trim(), description: description.trim() })
       sparkBurst(submitRef.current, { count: 36, power: 8 })
+      toast.success('Pull request opened')
       onSuccess()
       onClose()
       setTitle('')
       setDescription('')
       setSourceId('')
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to create pull request'))
+      setError(getErrorMessage(err, 'Failed to open the pull request.'))
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <div className={styles['modal-overlay']}>
-          <motion.div
-            className={styles['modal-content']}
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }}
-          >
-            <div className={styles['modal-header']}>
-              <div className={styles['modal-title-group']}>
-                <div className={styles['modal-icon']} style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
-                  <GitPullRequest size={20} />
-                </div>
-                <div>
-                  <h2 className={styles['modal-title']}>Open pull request</h2>
-                  <p className={styles['modal-subtitle']}>Propose changes from one branch to another.</p>
-                </div>
-              </div>
-              <button className={styles['modal-close']} onClick={onClose}>
-                <X size={20} />
-              </button>
-            </div>
-
-            <form className={styles['modal-form']} onSubmit={handleSubmit}>
-              <div className={styles['form-group']}>
-                <label className={styles['form-label']}>Title <span style={{ color: 'var(--accent-neon)' }}>*</span></label>
-                <input
-                  type="text"
-                  className={styles['form-input']}
-                  placeholder="e.g. Add landing page animations"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-                <div className={styles['form-group']} style={{ marginBottom: 0 }}>
-                  <label className={styles['form-label']}>Source <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(compare)</span></label>
-                  <select
-                    className={styles['form-input']}
-                    value={sourceId}
-                    onChange={(e) => setSourceId(e.target.value)}
-                    required
-                    style={{ appearance: 'auto' }}
-                  >
-                    <option value="" disabled>Select branch</option>
-                    {branches.map(br => (
-                      <option key={br.id} value={br.id}>{br.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className={styles['form-group']} style={{ marginBottom: 0 }}>
-                  <label className={styles['form-label']}>Target <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(base)</span></label>
-                  <select
-                    className={styles['form-input']}
-                    value={targetId}
-                    onChange={(e) => setTargetId(e.target.value)}
-                    required
-                    style={{ appearance: 'auto' }}
-                  >
-                    <option value="" disabled>Select branch</option>
-                    {branches.map(br => (
-                      <option key={br.id} value={br.id}>{br.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className={styles['form-group']}>
-                <label className={styles['form-label']}>Description</label>
-                <textarea
-                  className={styles['form-textarea']}
-                  placeholder="Describe your changes..."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  style={{ minHeight: '100px' }}
-                />
-              </div>
-
-              {error && <div className={styles['form-error']}>{error}</div>}
-
-              <div className={styles['modal-footer']}>
-                <button type="button" className="btn-ghost" onClick={onClose} disabled={loading}>Cancel</button>
-                <button ref={submitRef} type="submit" className={styles['submit-btn']} disabled={loading}>
-                  {loading ? 'Opening...' : 'Create Pull Request'}
-                </button>
-              </div>
-            </form>
-          </motion.div>
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      dismissible={!loading}
+      size="lg"
+      title="Open a pull request"
+      description="Propose merging the changes on one branch into another."
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={loading}>Cancel</Button>
+          <Button ref={submitRef} variant="primary" type="submit" form="new-pr-form" loading={loading} disabled={!title.trim() || sameBranch || onlyOneBranch}>
+            Open pull request
+          </Button>
+        </>
+      }
+    >
+      <form id="new-pr-form" className={styles.form} onSubmit={handleSubmit}>
+        <div className={styles.branchFlow}>
+          <Select label="Merge from" mono value={source} onChange={(e) => setSourceId(e.target.value)} error={sameBranch ? 'Pick two different branches' : undefined}>
+            {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </Select>
+          <span className={styles.flowArrow} aria-hidden="true"><ArrowRight size={18} /></span>
+          <Select label="Into" mono value={target} onChange={(e) => setTargetId(e.target.value)}>
+            {branches.map((b) => <option key={b.id} value={b.id}>{b.name}{b.is_default ? ' (default)' : ''}</option>)}
+          </Select>
         </div>
-      )}
-    </AnimatePresence>
+        {onlyOneBranch && (
+          <p className={styles.hint}><Info size={14} /> This repository has one branch. Create a branch from the branch menu and commit to it first.</p>
+        )}
+        <Input label="Title" placeholder="What does this change do?" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} data-autofocus />
+        <Textarea
+          label="Description"
+          optional
+          placeholder="Why this change, how to test it, anything reviewers should know…"
+          value={description}
+          maxLength={20000}
+          rows={5}
+          hint="Markdown supported"
+          onChange={(e) => setDescription(e.target.value)}
+        />
+        {error && <p className={styles.error} role="alert">{error}</p>}
+      </form>
+    </Modal>
   )
 }

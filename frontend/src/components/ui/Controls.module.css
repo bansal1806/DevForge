@@ -61,11 +61,13 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
+  z-index: 0;
   background: var(--color-surface-3);
   box-shadow: var(--shadow-1);
 }
 
-.segmentInner { position: relative; display: inline-flex; }
+/* Text always above the sliding pill, even the pill of a neighbouring segment mid-slide */
+.segmentInner { position: relative; z-index: 1; display: inline-flex; }
 
 .segmentCount {
   min-width: 20px;
