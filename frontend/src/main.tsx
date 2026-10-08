@@ -8,7 +8,7 @@ import { AuthProvider } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { DialogProvider, Toaster } from './components/ui'
 import { CommandPaletteProvider } from './contexts/CommandPalette'
-import { CommandPalette } from './components/CommandPalette/CommandPalette'
+import { CommandPaletteHost } from './components/CommandPalette/CommandPaletteHost'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -20,7 +20,7 @@ createRoot(document.getElementById('root')!).render(
             <DialogProvider>
               <CommandPaletteProvider>
                 <App />
-                <CommandPalette />
+                <CommandPaletteHost />
                 <Toaster />
               </CommandPaletteProvider>
             </DialogProvider>

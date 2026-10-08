@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { AlertCircle, ArrowRight, Eye, EyeOff, GitMerge, Hammer, Play, ShieldCheck, Sparkles } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
@@ -25,6 +25,12 @@ const POINTS = [
 export default function Auth() {
   const { user, loading: authLoading } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  // Where ProtectedRoute bounced them from; same-app paths only
+  const from = (location.state as { from?: { pathname?: string, search?: string } } | null)?.from
+  const destination = from?.pathname?.startsWith('/') && !from.pathname.startsWith('//') && from.pathname !== '/auth'
+    ? `${from.pathname}${from.search || ''}`
+    : '/dashboard'
   const [mode, setMode] = useState<Mode>('signin')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -44,7 +50,7 @@ export default function Auth() {
     return () => { window.clearTimeout(first); window.clearInterval(timer) }
   }, [])
 
-  if (!authLoading && user) return <Navigate to="/dashboard" replace />
+  if (!authLoading && user) return <Navigate to={destination} replace />
 
   const isSignup = mode === 'signup'
   const emailError = touched && !EMAIL_RE.test(email.trim()) ? 'Enter a valid email address' : null
@@ -63,7 +69,7 @@ export default function Auth() {
     setError(null)
     try {
       await signInToDemo()
-      navigate('/dashboard')
+      navigate(destination, { replace: true })
     } catch (err) {
       setError(getErrorMessage(err, 'Demo access failed'))
     } finally {
@@ -87,7 +93,7 @@ export default function Auth() {
           refresh_token: result.session.refresh_token,
         })
         if (sessionError) throw sessionError
-        navigate('/dashboard')
+        navigate(destination, { replace: true })
       } else {
         await apiClient.post('/api/auth/signup', { email: email.trim(), password, name: name.trim() || undefined })
         toast.success('Account created', { description: 'Check your email if confirmation is required, then sign in.' })

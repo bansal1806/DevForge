@@ -12,6 +12,8 @@ const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
 /** "just now", "5 minutes ago", "yesterday", "3 weeks ago" */
 export function timeAgo(date: string | Date, now = Date.now()) {
   const seconds = Math.round((new Date(date).getTime() - now) / 1000)
+  // Intl throws a RangeError on NaN; a bad timestamp shouldn't take down a page
+  if (!Number.isFinite(seconds)) return 'some time ago'
   if (Math.abs(seconds) < 45) return 'just now'
   for (const [unit, size] of UNITS) {
     if (Math.abs(seconds) >= size || unit === 'minute') {
