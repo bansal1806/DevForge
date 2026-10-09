@@ -364,13 +364,13 @@
   color: var(--color-text-secondary);
   line-height: 1.7;
 }
-.markdown h1, .markdown h2, .markdown h3 {
+.markdown .md-h1, .markdown .md-h2, .markdown .md-h3 {
   margin: 1.2em 0 0.5em;
   color: var(--color-text);
 }
-.markdown h1:first-child, .markdown h2:first-child { margin-top: 0; }
-.markdown h1 { font-size: var(--text-3xl); }
-.markdown h2 { font-size: var(--text-xl); }
+.markdown .md-h1:first-child, .markdown .md-h2:first-child { margin-top: 0; }
+.markdown .md-h1 { font-size: var(--text-3xl); }
+.markdown .md-h2 { font-size: var(--text-xl); }
 .markdown p, .markdown ul, .markdown ol { margin: 0.6em 0; }
 .markdown ul, .markdown ol { padding-left: 1.4em; }
 .markdown a { color: var(--color-ember-text); }

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 import type { OnMount } from '@monaco-editor/react'
-import ReactMarkdown from 'react-markdown'
+import { Markdown } from '../../components/Markdown/Markdown'
 import { useRepoRealtime, type FileChange } from '../../lib/useRepoRealtime'
 import {
   AvatarStack, Badge, Button, Card, EmptyState, IconButton, Input, Modal, Skeleton, Spinner, Tabs, toast, useDialog,
@@ -818,7 +818,7 @@ export default function RepoView() {
               ) : readme ? (
                 <article className={styles.readme}>
                   <div className={styles.readmeHead}><FileText size={14} /> README.md</div>
-                  <div className={styles.markdown}><ReactMarkdown>{readme.content || ''}</ReactMarkdown></div>
+                  <div className={styles.markdown}><Markdown>{readme.content || ''}</Markdown></div>
                 </article>
               ) : (
                 <EmptyState
@@ -1002,7 +1002,7 @@ export default function RepoView() {
         title={<span className={styles.aiTitle}><Sparkles size={18} /> AI explanation</span>}
         description={activeFile?.path}
       >
-        <div className={styles.markdown}><ReactMarkdown>{aiExplanation || ''}</ReactMarkdown></div>
+        <div className={styles.markdown}><Markdown offset={2}>{aiExplanation || ''}</Markdown></div>
       </Modal>
     </div>
   )

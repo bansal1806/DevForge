@@ -221,14 +221,14 @@ button, input, select, textarea {
 }
 .markdown-body > :first-child { margin-top: 0; }
 .markdown-body > :last-child { margin-bottom: 0; }
-.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+.markdown-body .md-h1, .markdown-body .md-h2, .markdown-body .md-h3, .markdown-body .md-h4 {
   margin: 1.2em 0 0.5em;
   color: var(--color-text);
   line-height: var(--leading-snug);
 }
-.markdown-body h1 { font-size: var(--text-2xl); }
-.markdown-body h2 { font-size: var(--text-xl); }
-.markdown-body h3 { font-size: var(--text-lg); }
+.markdown-body .md-h1 { font-size: var(--text-2xl); }
+.markdown-body .md-h2 { font-size: var(--text-xl); }
+.markdown-body .md-h3 { font-size: var(--text-lg); }
 .markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body blockquote, .markdown-body pre { margin: 0.6em 0; }
 .markdown-body ul, .markdown-body ol { padding-left: 1.4em; }
 .markdown-body a { color: var(--color-ember-text); }

@@ -33,7 +33,7 @@ import { Avatar, Button, Card, EmptyState, IconButton, LinkButton, Skeleton, Ske
 import { sparkBurst } from '../../lib/sparks'
 import { fadeUp, stagger } from '../../lib/motion'
 import { timeAgo } from '../../lib/time'
-import ReactMarkdown from 'react-markdown'
+import { Markdown } from '../../components/Markdown/Markdown'
 import styles from '../shared/Detail.module.css'
 import prStyles from './PRDetail.module.css'
 
@@ -284,7 +284,7 @@ export default function PRDetail() {
                     <strong>{pr.author?.name || 'Deleted user'}</strong> opened this pull request {timeAgo(pr.created_at, now)}
                   </header>
                   <div className={`${styles.descriptionBody} markdown-body`}>
-                    <ReactMarkdown>{pr.description || '_No description provided._'}</ReactMarkdown>
+                    <Markdown>{pr.description || '_No description provided._'}</Markdown>
                   </div>
                 </article>
               </div>
@@ -353,7 +353,7 @@ export default function PRDetail() {
                         <Button size="sm" variant="secondary" onClick={handlePostReview} loading={postingReview}>Post as comment</Button>
                         <IconButton size="sm" label="Dismiss AI review" icon={<X size={14} />} onClick={() => setAiReview(null)} />
                       </header>
-                      <div className="markdown-body"><ReactMarkdown>{aiReview}</ReactMarkdown></div>
+                      <div className="markdown-body"><Markdown offset={2}>{aiReview}</Markdown></div>
                     </Card>
                   </motion.div>
                 )}

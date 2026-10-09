@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { MessageSquare, CheckCircle2, XCircle } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
+import { Markdown } from '../Markdown/Markdown'
 import {
   getIssueComments,
   postIssueComment,
@@ -132,7 +132,7 @@ export default function CommentSection({ type, id, prAuthorId, allowReviews = fa
                     </time>
                   </header>
                   <div className={`${styles.body} markdown-body`}>
-                    <ReactMarkdown>{item.content || ''}</ReactMarkdown>
+                    <Markdown offset={2}>{item.content || ''}</Markdown>
                   </div>
                 </article>
               )}
@@ -183,7 +183,7 @@ export default function CommentSection({ type, id, prAuthorId, allowReviews = fa
               />
             ) : (
               <div className={`${styles.preview} markdown-body`}>
-                {newComment.trim() ? <ReactMarkdown>{newComment}</ReactMarkdown> : <span className={styles.muted}>Nothing to preview</span>}
+                {newComment.trim() ? <Markdown offset={2}>{newComment}</Markdown> : <span className={styles.muted}>Nothing to preview</span>}
               </div>
             )}
 

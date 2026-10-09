@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { CircleDot, CheckCircle2, ChevronLeft, Link2, Calendar, Clock, FolderGit2 } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
+import { Markdown } from '../../components/Markdown/Markdown'
 import { getIssueById, updateIssue, getErrorMessage, type Issue } from '../../lib/api'
 import CommentSection from '../../components/Social/CommentSection'
 import { Avatar, Button, EmptyState, IconButton, LinkButton, Skeleton, SkeletonText, toast } from '../../components/ui'
@@ -132,7 +132,7 @@ export default function IssueDetail() {
                 <strong>{issue.author?.name || 'Deleted user'}</strong> opened {timeAgo(issue.created_at, now)}
               </header>
               <div className={`${styles.descriptionBody} markdown-body`}>
-                <ReactMarkdown>{issue.description || '_No description provided._'}</ReactMarkdown>
+                <Markdown>{issue.description || '_No description provided._'}</Markdown>
               </div>
             </article>
           </div>
