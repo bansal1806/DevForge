@@ -49,7 +49,7 @@ graph TD
 | Data & auth | Supabase (Postgres + Auth + RLS), 12 versioned SQL migrations |
 | Execution | Docker (dockerode) locally, Piston API in the cloud |
 | AI | OpenAI API (optional, mock-mode fallback) |
-| CI | GitHub Actions — dependency audit, type-check, tests (Vitest + Supertest + PGlite), WCAG contrast check, lint, build |
+| CI | GitHub Actions — dependency audit, type-check, tests (Vitest + Supertest + PGlite), WCAG contrast check, lint, build, Playwright e2e + axe-core |
 
 ## Running locally
 
@@ -106,8 +106,9 @@ Rate limits for login, signup, AI and code execution are shared across serverles
 - `backend/tests/migrations.test.ts` — applies the real schema and every migration to an in-process Postgres (PGlite) with Supabase auth stubs, then verifies the security model (role/email lockdown, RLS per access level, cross-repo integrity triggers) and the versioning functions (ancestry, merge base, three-way merge, conflicts, uncommitted-edit protection).
 - `backend/tests/authz.test.ts` — runs the real Express routes against an in-memory Supabase fake: one regression test per fixed authorization bug, plus HTTP hygiene (413/400/CORS).
 - `backend/tests/app.test.ts`, `units.test.ts` — API surface, path-traversal protection and abuse middleware.
+- `frontend/e2e/` — Playwright tests (`npm run test:e2e --workspace frontend`) that run the real frontend against a mocked API and a fake Supabase project: core flows (editing, committing, merging, dialogs, routing), keyboard access, axe-core accessibility scans of every page in both themes, and layout at phone widths.
 - `frontend/scripts/check-contrast.mjs` — computes WCAG contrast for every text/surface token pair in both themes (including tinted chips on raised surfaces) and fails on anything below AA.
-- GitHub Actions runs a production dependency audit, type-checking, tests, the contrast check, lint, and the production build on every push and PR.
+- GitHub Actions runs a production dependency audit, type-checking, tests, the contrast check, lint, the production build and the end-to-end suite on every push and PR.
 
 ## License
 
