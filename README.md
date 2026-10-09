@@ -16,6 +16,7 @@ Built solo as a deep-dive into platform engineering: versioning models, row-leve
 - **Sandboxed execution** — run Python/JavaScript/TypeScript/C++ files from the editor, on the branch you're viewing, with the branch's other files available for imports. Locally, code runs in hardened Docker containers (non-root, all capabilities dropped, no network, read-only root filesystem, 256MB RAM, 0.5 CPU, 64-process limit, capped output, 10s kill). In the cloud, execution goes through the [Piston](https://github.com/engineer-man/piston) API.
 - **Live collaboration** — presence avatars and live edits in the repo editor over Supabase Realtime private channels, authorized by the same repo permissions (works on serverless hosting).
 - **Issues, gists, stars, activity feeds, per-repo execution insights** (charts), and an admin observability dashboard (role-gated).
+- **An IDE-style repo view** — file tree, editor tabs with unsaved-change markers, Ctrl+S, an animated run terminal, and a status bar; plus a Ctrl+K command palette for jumping anywhere and running repo actions.
 
 ## Architecture
 
@@ -36,18 +37,19 @@ graph TD
 - **Two-layer authorization** (`backend/src/middleware/authorize.ts`, migration 009): one access model — owner, collaborator read/write/admin, public read — enforced by the API (404-on-private to prevent enumeration) and mirrored by Postgres RLS built on `SECURITY DEFINER` helpers (no policy recursion). Column-level grants keep emails and roles out of the public API, and triggers stop rows from referencing branches or commits of another repository.
 - **Zero-trust execution** (`backend/src/services/sandbox.ts`): ephemeral per-run containers with no network, no capabilities, no root and hard resource caps — with an automatic fallback to the Piston API where Docker isn't available.
 - **Realtime without a socket server** (`migrations/012`, `frontend/src/lib/useRepoRealtime.ts`): each repo is a private Supabase Realtime channel (`repo:<id>`); RLS on `realtime.messages` lets readers listen and show presence but only writers broadcast edits. Edits are scoped to branch + path and throttled to ~7 messages/second.
+- **A designed, accessible frontend** (`frontend/src/styles/tokens.css`, `frontend/src/components/ui`, `/styleguide`): one token system drives two themes ("Night Forge" and "Daylight", following the OS by default and applied before first paint). Every text/background token pair is checked against WCAG AA by `frontend/scripts/check-contrast.mjs`, which runs in CI. Menus follow the WAI-ARIA keyboard pattern, dialogs trap and restore focus, client-side navigation updates the page title and moves focus, and motion respects `prefers-reduced-motion`. Pages are code-split by route, with an error boundary that keeps the app shell alive if one page fails.
 - **Serverless-aware runtime**: file logging, the git mirror, and the Docker engine automatically disable on read-only serverless filesystems; the same codebase runs on a laptop, a VM, or Vercel functions.
 
 ## Tech stack
 
 | Layer | Tech |
 |---|---|
-| Frontend | React 19, TypeScript, Vite, Monaco Editor, Zustand, Framer Motion, Recharts |
+| Frontend | React 19, TypeScript, Vite, Monaco Editor, Zustand, Framer Motion, Recharts, cmdk, Sonner |
 | Backend | Node.js, Express 5, TypeScript, Winston |
 | Data & auth | Supabase (Postgres + Auth + RLS), 12 versioned SQL migrations |
 | Execution | Docker (dockerode) locally, Piston API in the cloud |
 | AI | OpenAI API (optional, mock-mode fallback) |
-| CI | GitHub Actions — dependency audit, type-check, tests (Vitest + Supertest + PGlite), lint, build |
+| CI | GitHub Actions — dependency audit, type-check, tests (Vitest + Supertest + PGlite), WCAG contrast check, lint, build |
 
 ## Running locally
 
@@ -104,7 +106,8 @@ Rate limits for login, signup, AI and code execution are shared across serverles
 - `backend/tests/migrations.test.ts` — applies the real schema and every migration to an in-process Postgres (PGlite) with Supabase auth stubs, then verifies the security model (role/email lockdown, RLS per access level, cross-repo integrity triggers) and the versioning functions (ancestry, merge base, three-way merge, conflicts, uncommitted-edit protection).
 - `backend/tests/authz.test.ts` — runs the real Express routes against an in-memory Supabase fake: one regression test per fixed authorization bug, plus HTTP hygiene (413/400/CORS).
 - `backend/tests/app.test.ts`, `units.test.ts` — API surface, path-traversal protection and abuse middleware.
-- GitHub Actions runs a production dependency audit, type-checking, tests, lint, and the production build on every push and PR.
+- `frontend/scripts/check-contrast.mjs` — computes WCAG contrast for every text/surface token pair in both themes (including tinted chips on raised surfaces) and fails on anything below AA.
+- GitHub Actions runs a production dependency audit, type-checking, tests, the contrast check, lint, and the production build on every push and PR.
 
 ## License
 
