@@ -1,0 +1,97 @@
+import { test, expect, REPO } from './fixtures/test'
+
+test.describe('create dialogs', () => {
+  test('new repository: validation, visibility, navigates to the repo', async ({ page }) => {
+    const created = { ...REPO, id: 'ffffffff-ffff-4fff-8fff-ffffffffffff', name: 'shiny' }
+    let body: Record<string, unknown> | null = null
+    await page.route(/\/api\/repos$/, (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      body = route.request().postDataJSON()
+      return route.fulfill({ status: 201, json: created })
+    })
+    await page.goto('/dashboard')
+    await page.getByRole('button', { name: /^New$/ }).click()
+    await page.getByRole('menuitem', { name: 'New repository' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Create a repository' })
+    const name = dialog.getByLabel('Repository name')
+    await expect(name).toBeFocused()
+    await name.fill('bad name!')
+    await expect(dialog.getByText(/letters, numbers/)).toBeVisible()
+    await expect(dialog.getByRole('button', { name: 'Create repository' })).toBeDisabled()
+    await name.fill('shiny')
+    await dialog.getByText('Private', { exact: true }).click()
+    await dialog.getByRole('button', { name: 'Create repository' }).click()
+    await expect(page).toHaveURL(new RegExp(`/repo/${created.id}`))
+    expect(body).toMatchObject({ name: 'shiny', isPrivate: true })
+  })
+
+  test('Escape closes and focus returns to the opener', async ({ page }) => {
+    await page.goto('/repositories')
+    const opener = page.getByRole('button', { name: 'New repository' })
+    await opener.click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await expect(opener).toBeFocused()
+  })
+
+  test('new issue and new pull request from the repo page', async ({ page }) => {
+    await page.goto(`/repo/${REPO.id}`)
+    const sections = page.getByRole('tablist', { name: 'Repository sections' })
+
+    await sections.getByRole('tab', { name: /Issues/ }).click()
+    await page.getByRole('button', { name: /New issue/ }).click()
+    const issue = page.getByRole('dialog', { name: 'New issue' })
+    await expect(issue.getByRole('button', { name: 'Open issue' })).toBeDisabled()
+    await issue.getByLabel('Title').fill('  Crash on empty input  ')
+    const issuePost = page.waitForRequest((r) => /\/issues\/repos\//.test(r.url()) && r.method() === 'POST')
+    await issue.getByRole('button', { name: 'Open issue' }).click()
+    expect((await issuePost).postDataJSON()).toMatchObject({ title: 'Crash on empty input' })
+    await expect(issue).toBeHidden()
+
+    await sections.getByRole('tab', { name: /Pull Requests/ }).click()
+    await page.getByRole('button', { name: /New pull request/ }).click()
+    const pr = page.getByRole('dialog', { name: 'Open a pull request' })
+    await expect(pr.getByLabel('Merge from')).toHaveValue('00000000-0000-4000-8000-0000000000a2')
+    await expect(pr.getByLabel('Into')).toHaveValue('00000000-0000-4000-8000-0000000000a1')
+    // "Merge from" follows "Into" until it's chosen explicitly; only an explicit clash is an error
+    await pr.getByLabel('Merge from').selectOption('00000000-0000-4000-8000-0000000000a2')
+    await pr.getByLabel('Into').selectOption('00000000-0000-4000-8000-0000000000a2')
+    await expect(pr.getByText('Pick two different branches')).toBeVisible()
+    await pr.getByLabel('Into').selectOption('00000000-0000-4000-8000-0000000000a1')
+    await pr.getByLabel('Title').fill('Memoize all the things')
+    const prPost = page.waitForRequest((r) => r.url().endsWith('/api/pull-requests') && r.method() === 'POST')
+    await pr.getByRole('button', { name: 'Open pull request' }).click()
+    expect((await prPost).postDataJSON()).toMatchObject({ sourceBranchId: '00000000-0000-4000-8000-0000000000a2', targetBranchId: '00000000-0000-4000-8000-0000000000a1' })
+  })
+
+  test('new gist: language from filename, Tab indents, duplicate names rejected', async ({ page }) => {
+    await page.route(/\/api\/gists$/, (route) => route.request().method() === 'POST'
+      ? route.fulfill({ status: 201, json: { id: '99999999-1111-4111-8111-111111111111' } })
+      : route.fallback())
+    await page.goto('/gists')
+    await page.getByRole('button', { name: 'New gist' }).first().click()
+    const dialog = page.getByRole('dialog', { name: 'New gist' })
+    await dialog.getByLabel('File 1 name').fill('hello.py')
+    await expect(dialog.getByText('Python')).toBeVisible()
+    const code = dialog.getByLabel('File 1 content')
+    await code.fill('def hi():')
+    await code.press('End')
+    await code.press('Enter')
+    await code.press('Tab')
+    await code.pressSequentially('print("hi")')
+    await expect(code).toHaveValue(/\n {2}print\("hi"\)/)
+
+    await dialog.getByRole('button', { name: 'Add file' }).click()
+    await dialog.getByLabel('File 2 name').fill('hello.py')
+    await dialog.getByLabel('File 2 content').fill('x')
+    await dialog.getByRole('radio', { name: 'Secret' }).click()
+    await dialog.getByRole('button', { name: /Create secret gist/ }).click()
+    await expect(dialog.getByText('File names must be unique within a gist.')).toBeVisible()
+    await dialog.getByRole('button', { name: 'Remove file 2' }).click()
+    const post = page.waitForRequest((r) => r.url().endsWith('/api/gists') && r.method() === 'POST')
+    await dialog.getByRole('button', { name: /Create secret gist/ }).click()
+    expect((await post).postDataJSON()).toMatchObject({ is_public: false, files: [{ filename: 'hello.py', language: 'python' }] })
+    await expect(page).toHaveURL(/\/gists\/99999999/)
+  })
+})
