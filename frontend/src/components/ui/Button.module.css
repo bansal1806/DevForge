@@ -1,0 +1,94 @@
+.button {
+  --btn-height: 38px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: var(--btn-height);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out),
+    filter var(--dur-fast) var(--ease-out);
+}
+
+.button:active:not(:disabled) { transform: translateY(1px) scale(0.985); }
+.button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+.sm { --btn-height: 30px; padding: 0 var(--space-3); font-size: var(--text-xs); border-radius: var(--radius-sm); }
+.lg { --btn-height: 46px; padding: 0 var(--space-6); font-size: var(--text-base); border-radius: var(--radius-lg); }
+.full { width: 100%; }
+
+/* Primary — the molten action. Use once per view. */
+.primary {
+  background: var(--molten);
+  color: var(--on-molten);
+  box-shadow: var(--shadow-ember);
+}
+.primary:hover:not(:disabled) {
+  background: var(--molten-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 1px rgba(255, 140, 60, 0.45), 0 12px 32px var(--color-ember-glow);
+}
+
+.secondary {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.secondary:hover:not(:disabled) {
+  background: var(--color-surface-3);
+  border-color: var(--color-ember);
+}
+
+.ghost {
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+.ghost:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+}
+.danger:hover:not(:disabled) {
+  background: var(--color-danger);
+  color: #fff;
+}
+
+.loading { color: transparent !important; }
+.loading > :not(.spinnerSlot) { visibility: hidden; }
+.spinnerSlot {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: inherit;
+}
+.primary.loading .spinnerSlot { color: var(--on-molten); }
+.secondary.loading .spinnerSlot, .ghost.loading .spinnerSlot { color: var(--color-text); }
+.danger.loading .spinnerSlot { color: var(--color-danger); }
+
+/* Icon-only */
+.icon {
+  width: var(--btn-height);
+  padding: 0;
+}

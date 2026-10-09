@@ -19,6 +19,7 @@ import {
   getDefaultBranch,
   resolveBranch,
   createCommitWithSnapshots,
+  buildCommitDiff,
   isSafeRepoPath,
 } from '../utils/versioning';
 
@@ -382,6 +383,32 @@ router.get('/:id/commits', optionalAuth, verifyRepoAccess('read'), async (req: A
 });
 
 /**
+ * GET /api/repos/:id/commits/:commitId
+ * A single commit with the changes it introduced (diff against its first parent).
+ */
+router.get('/:id/commits/:commitId', optionalAuth, verifyRepoAccess('read'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const commitId = req.params.commitId as string;
+    if (!isUuid(commitId)) return res.status(404).json({ error: 'Commit not found' });
+
+    const { data: commit } = await supabaseAdmin
+      .from('commits')
+      .select(`*, author:users(${PUBLIC_USER_COLUMNS}), branch:branches(id, name)`)
+      .eq('id', commitId)
+      .eq('repo_id', id)
+      .maybeSingle();
+    if (!commit) return res.status(404).json({ error: 'Commit not found' });
+
+    const diff = await buildCommitDiff(commit.id, commit.parent_id || null);
+    res.json({ commit, diff });
+  } catch (err: any) {
+    logger.error(`Commit detail failed: ${err.message}`);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/repos/:id/metrics
  * Execution stats for this repository (feeds the Insights tab).
  */
@@ -667,6 +694,10 @@ router.delete('/:id', requireAuth, verifyOwnership('repositories'), blockDemoUse
     if (deleteError) return res.status(500).json({ error: 'Failed to delete repository' });
 
     await mirrorToGit(id, (git) => git.destroy());
+
+    // Opportunistically collect long-unreferenced content blobs (best effort)
+    const { error: gcError } = await supabaseAdmin.rpc('gc_blobs');
+    if (gcError) logger.warn(`Blob GC skipped: ${gcError.message}`);
 
     // repo_id is omitted: audit rows cascade with the repository
     await logAudit({

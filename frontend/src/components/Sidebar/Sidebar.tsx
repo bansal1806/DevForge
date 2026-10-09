@@ -1,109 +1,104 @@
-import { motion } from 'framer-motion'
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import {
-  LayoutDashboard,
-  GitFork,
-  Code2,
-  Bug,
-  GitPullRequest,
-  BookOpen,
-  Star,
-} from 'lucide-react'
+import { motion } from 'framer-motion'
+import { BookOpen, Bug, Code2, GitFork, GitPullRequest, LayoutDashboard, Lock, Star } from 'lucide-react'
 import { useStore } from '../../store/useStore'
+import { getRepositories } from '../../lib/api'
+import { spring } from '../../lib/motion'
 import styles from './Sidebar.module.css'
 
-const sidebarVariants = {
-  initial: { x: -280, opacity: 0 },
-  animate: {
-    x: 0,
-    opacity: 1,
-    transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] as [number, number, number, number], delay: 0.1 },
-  },
+const NAV = [
+  { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
+  { icon: GitFork, label: 'Repositories', path: '/repositories', count: 'repos' as const },
+  { icon: GitPullRequest, label: 'Pull requests', path: '/pull-requests' },
+  { icon: Bug, label: 'Issues', path: '/issues' },
+  { icon: Code2, label: 'Gists', path: '/gists' },
+  { icon: Star, label: 'Starred', path: '/starred' },
+  { icon: BookOpen, label: 'Explore', path: '/explore' },
+]
+
+// Same palette as avatars, so a repo keeps its color everywhere
+const DOT_COLORS = ['#e8541b', '#c2410c', '#6d45d6', '#0f766e', '#2a62c9', '#9d174d', '#b45309', '#4d5b6b']
+const dotFor = (id: string) => {
+  let hash = 0
+  for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
+  return DOT_COLORS[hash % DOT_COLORS.length]
 }
 
-const itemVariants = {
-  initial: { x: -20, opacity: 0 },
-  animate: (i: number) => ({
-    x: 0,
-    opacity: 1,
-    transition: { delay: 0.2 + i * 0.04, duration: 0.4, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] },
-  }),
-}
+type ApiStatus = 'checking' | 'online' | 'offline'
 
-const colors = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444']
+/** Pings the real health endpoint instead of claiming a status. */
+function useApiStatus(): ApiStatus {
+  const [status, setStatus] = useState<ApiStatus>('checking')
+  useEffect(() => {
+    let cancelled = false
+    const check = () =>
+      fetch('/api/health', { cache: 'no-store' })
+        .then((r) => { if (!cancelled) setStatus(r.ok ? 'online' : 'offline') })
+        .catch(() => { if (!cancelled) setStatus('offline') })
+    check()
+    const timer = window.setInterval(check, 60_000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [])
+  return status
+}
 
 export default function Sidebar() {
   const location = useLocation()
-  const { repositories } = useStore()
+  const { repositories, setRepositories } = useStore()
+  const status = useApiStatus()
 
-  // Use the first 5 repositories as "recent"
-  const recentRepos = repositories.slice(0, 5)
+  // Recent repos must not depend on having visited the dashboard first
+  useEffect(() => {
+    if (repositories.length > 0) return
+    let cancelled = false
+    getRepositories().then((data) => { if (!cancelled) setRepositories(data) }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [repositories.length, setRepositories])
 
-  const navItems = [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
-    { icon: GitFork, label: 'Repositories', path: '/repositories', badge: repositories.length > 0 ? repositories.length.toString() : undefined },
-    { icon: GitPullRequest, label: 'Pull Requests', path: '/pull-requests' },
-    { icon: Bug, label: 'Issues', path: '/issues', badge: '3' },
-    { icon: Code2, label: 'Gists', path: '/gists' },
-    { icon: Star, label: 'Starred', path: '/starred' },
-    { icon: BookOpen, label: 'Explore', path: '/explore' },
-  ]
+  const recent = [...repositories]
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .slice(0, 6)
 
   return (
-    <motion.aside
-      className={styles.sidebar}
-      variants={sidebarVariants}
-      initial="initial"
-      animate="animate"
-    >
-      {/* Main Navigation */}
-      <div className={styles['sidebar-section']}>
-        <div className={styles['sidebar-section-label']}>Navigation</div>
-        {navItems.map((item, i) => {
-          const isActive = location.pathname === item.path
+    <aside className={styles.sidebar} aria-label="Primary">
+      <nav className={styles.section}>
+        {NAV.map((item) => {
+          const active = location.pathname === item.path
+          const count = item.count === 'repos' && repositories.length > 0 ? repositories.length : null
           return (
-            <motion.div key={item.label} custom={i} variants={itemVariants} initial="initial" animate="animate">
-              <Link
-                to={item.path}
-                className={`${styles['sidebar-link']} ${isActive ? styles['sidebar-link--active'] : ''}`}
-              >
-                <item.icon size={18} className={styles['sidebar-link-icon']} />
-                {item.label}
-                {item.badge && <span className={styles['sidebar-link-badge']}>{item.badge}</span>}
-              </Link>
-            </motion.div>
+            <Link key={item.path} to={item.path} className={`${styles.link} ${active ? styles.active : ''}`} aria-current={active ? 'page' : undefined}>
+              {active && <motion.span layoutId="sidebar-active" className={styles.activeBg} transition={spring} />}
+              <item.icon size={17} className={styles.icon} />
+              <span className={styles.label}>{item.label}</span>
+              {count !== null && <span className={styles.count}>{count}</span>}
+            </Link>
           )
         })}
-      </div>
+      </nav>
 
-      <div className={styles['sidebar-divider']} />
-
-      {/* Recent Repositories */}
-      <div className={styles['sidebar-repos']}>
-        <div className={styles['sidebar-section-label']} style={{ padding: '0 12px', marginBottom: '8px' }}>
-          Recent Repositories
-        </div>
-        {recentRepos.length === 0 ? (
-          <div style={{ padding: '0 12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>No repositories yet</div>
+      <div className={styles.section}>
+        <div className={styles.heading}>Recent repositories</div>
+        {recent.length === 0 ? (
+          <div className={styles.emptyRecent}>No repositories yet</div>
         ) : (
-          recentRepos.map((repo, i) => (
-            <motion.div key={repo.id} custom={i + navItems.length} variants={itemVariants} initial="initial" animate="animate">
-              <Link to={`/repo/${repo.id}`} className={styles['sidebar-repo-item']}>
-                <span className={styles['sidebar-repo-dot']} style={{ background: colors[i % colors.length] }} />
-                {repo.name}
+          recent.map((repo) => {
+            const active = location.pathname === `/repo/${repo.id}`
+            return (
+              <Link key={repo.id} to={`/repo/${repo.id}`} className={`${styles.repo} ${active ? styles.repoActive : ''}`} title={repo.name}>
+                <span className={styles.dot} style={{ background: dotFor(repo.id) }} aria-hidden="true" />
+                <span className={styles.repoName}>{repo.name}</span>
+                {repo.is_private && <Lock size={12} className={styles.lock} aria-label="Private" />}
               </Link>
-            </motion.div>
-          ))
+            )
+          })
         )}
       </div>
 
-      {/* Footer */}
-      <div className={styles['sidebar-footer']}>
-        <div className={styles['sidebar-footer-info']}>
-          <span className={styles['sidebar-footer-status']} />
-          API Connected
-        </div>
+      <div className={styles.footer}>
+        <span className={`${styles.status} ${styles[status]}`} aria-hidden="true" />
+        {status === 'checking' ? 'Checking API…' : status === 'online' ? 'API online' : 'API unreachable'}
       </div>
-    </motion.aside>
+    </aside>
   )
 }

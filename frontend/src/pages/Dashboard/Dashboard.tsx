@@ -1,220 +1,189 @@
-import { useEffect } from 'react'
-import { motion } from 'framer-motion'
-import type { Variants } from 'framer-motion'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import { ArrowRight, Bug, Compass, GitCommitHorizontal, GitFork, GitPullRequest, Search, Star } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import { useCommandPalette } from '../../contexts/CommandPalette'
 import { useStore } from '../../store/useStore'
-import { getRepositories, getActivity } from '../../lib/api'
-import {
-  GitFork,
-  GitCommit,
-  GitPullRequest,
-  Bug,
-  Star,
-  ArrowUpRight,
-  ArrowRight,
-  TrendingUp,
-  Clock,
-} from 'lucide-react'
+import { getActivity, getIssues, getPullRequests, getRepositories } from '../../lib/api'
+import type { ActivityItem, Issue, PullRequest } from '../../lib/api'
+import { Button, Card, EmptyState, Kbd, LinkButton, Skeleton } from '../../components/ui'
+import { RepoCard, RepoGrid } from '../../components/RepoCard/RepoCard'
+import { heatOf, timeAgo } from '../../lib/time'
+import { fadeUp, stagger } from '../../lib/motion'
 import styles from './Dashboard.module.css'
 
-
-
-const feedIconMap: Record<string, { icon: typeof GitCommit; color: string }> = {
-  commit: { icon: GitCommit, color: 'purple' },
-  pr: { icon: GitPullRequest, color: 'emerald' },
-  issue: { icon: Bug, color: 'amber' },
-  star: { icon: Star, color: 'blue' },
+function greeting(hour: number) {
+  if (hour < 5) return 'Burning the midnight oil'
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
 }
 
-const containerVariants: Variants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.06 } },
-}
-
-const itemVariants: Variants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } },
-}
+const ACTIVITY_ICON = { commit: GitCommitHorizontal, pr: GitPullRequest, issue: Bug }
+const ACTIVITY_VERB = { commit: 'Committed to', pr: 'Opened a pull request in', issue: 'Opened an issue in' }
 
 export default function Dashboard() {
   const { user } = useAuth()
-  const { 
-    repositories, setRepositories, 
-    activity, setActivity,
-    loading, setLoading, setError 
-  } = useStore()
+  const { setOpen: openPalette } = useCommandPalette()
+  const { repositories, setRepositories } = useStore()
+  const [activity, setActivity] = useState<ActivityItem[]>([])
+  const [prs, setPrs] = useState<PullRequest[]>([])
+  const [issues, setIssues] = useState<Issue[]>([])
+  const [loading, setLoading] = useState(true)
+  const [now] = useState(() => Date.now())
 
   useEffect(() => {
-    if (user?.id) {
-      setLoading(true)
-      Promise.all([
-        getRepositories(),
-        getActivity()
-      ])
-        .then(([repos, activities]) => {
-          setRepositories(repos)
-          setActivity(activities)
-        })
-        .catch((err) => {
-          console.error(err)
-          setError('Failed to load dashboard data')
-        })
-        .finally(() => setLoading(false))
-    }
-  }, [user?.id, setRepositories, setActivity, setLoading, setError])
+    if (!user?.id) return
+    let cancelled = false
+    Promise.allSettled([getRepositories(), getActivity(), getPullRequests(), getIssues()]).then(([r, a, p, i]) => {
+      if (cancelled) return
+      if (r.status === 'fulfilled') setRepositories(r.value)
+      if (a.status === 'fulfilled') setActivity(a.value)
+      if (p.status === 'fulfilled') setPrs(p.value)
+      if (i.status === 'fulfilled') setIssues(i.value)
+      setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [user?.id, setRepositories])
 
-  const statsData = [
-    { icon: GitFork, color: 'blue', value: repositories.length.toString(), label: 'Repositories', trend: '+1', trendDir: 'up' as const },
-    { icon: GitCommit, color: 'purple', value: activity.filter(a => a.type === 'commit').length.toString(), label: 'Recent Commits', trend: 'New', trendDir: 'up' as const },
-    { icon: GitPullRequest, color: 'emerald', value: activity.filter(a => a.type === 'pr').length.toString(), label: 'Active PRs', trend: '0', trendDir: 'up' as const },
-    { icon: Bug, color: 'amber', value: activity.filter(a => a.type === 'issue').length.toString(), label: 'Open Issues', trend: '0', trendDir: 'up' as const },
+  const name = (user?.user_metadata?.full_name as string | undefined)?.split(' ')[0] || user?.email?.split('@')[0] || 'there'
+  const openPrs = prs.filter((p) => p.status === 'open')
+  const openIssues = issues.filter((i) => i.status === 'open')
+  const stars = repositories.reduce((n, r) => n + (r.stars_count || 0), 0)
+  const recentRepos = [...repositories]
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .slice(0, 6)
+
+  const stats = [
+    { label: 'Repositories', value: repositories.length, icon: GitFork, to: '/repositories' },
+    { label: 'Stars received', value: stars, icon: Star, to: '/repositories' },
+    { label: 'Your open pull requests', value: openPrs.length, icon: GitPullRequest, to: '/pull-requests' },
+    { label: 'Your open issues', value: openIssues.length, icon: Bug, to: '/issues' },
   ]
 
   return (
-    <div className={styles.dashboard}>
-      {/* Header */}
-      <motion.div
-        className={styles['dashboard-header']}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }}
-      >
-        <h1 className={styles['dashboard-greeting']}>
-          Good afternoon, <span className="text-gradient">{user?.email?.split('@')[0] || 'Developer'}</span> 👋
-        </h1>
-        <p className={styles['dashboard-greeting-sub']}>
-          Here's what's happening across your projects today.
-        </p>
-      </motion.div>
+    <div className={styles.page}>
+      <motion.header className={styles.header} initial="hidden" animate="visible" variants={stagger(0.06)}>
+        <motion.div variants={fadeUp}>
+          <h1 className={styles.title}>
+            {greeting(new Date(now).getHours())}, <span className="text-gradient">{name}</span>
+          </h1>
+          <p className={styles.subtitle}>Here’s what’s happening across your projects.</p>
+        </motion.div>
+        <motion.div variants={fadeUp} className={styles.headerActions}>
+          <Button iconLeft={<Search size={15} />} onClick={() => openPalette(true)}>
+            Jump to… <span className={styles.keys}><Kbd>Ctrl</Kbd><Kbd>K</Kbd></span>
+          </Button>
+          <LinkButton to="/explore" variant="ghost"><Compass size={15} /> Explore</LinkButton>
+        </motion.div>
+      </motion.header>
 
-      {/* Activity Stats */}
-      <motion.div
-        className={styles['activity-cards']}
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-      >
-        {statsData.map((item) => (
-          <motion.div
-            key={item.label}
-            className={`${styles['activity-card']} ${styles[`activity-card--${item.color}`]}`}
-            variants={itemVariants}
-            whileHover={{ y: -2 }}
-          >
-            <div className={styles['activity-card-top']}>
-              <div className={`${styles['activity-card-icon']} ${styles[`activity-card-icon--${item.color}`]}`}>
-                <item.icon size={20} />
-              </div>
-              <span className={`${styles['activity-card-trend']} ${styles[`activity-card-trend--${item.trendDir}`]}`}>
-                <TrendingUp size={12} /> {item.trend}
-              </span>
-            </div>
-            <div className={styles['activity-card-value']}>{item.value}</div>
-            <div className={styles['activity-card-label']}>{item.label}</div>
+      <motion.section className={styles.stats} aria-label="Overview" initial="hidden" animate="visible" variants={stagger(0.05, 0.05)}>
+        {stats.map((s) => (
+          <motion.div key={s.label} variants={fadeUp}>
+            <Link to={s.to} className={styles.statLink}>
+              <Card interactive className={styles.stat}>
+                <span className={styles.statIcon}><s.icon size={18} /></span>
+                {loading ? <Skeleton width={48} height={30} /> : <span className={styles.statValue}>{s.value.toLocaleString()}</span>}
+                <span className={styles.statLabel}>{s.label}</span>
+              </Card>
+            </Link>
           </motion.div>
         ))}
-      </motion.div>
+      </motion.section>
 
-      {/* Repositories */}
-      <motion.div
-        className={styles.section}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.3, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }}
-      >
-        <div className={styles['section-header']}>
-          <h2 className={styles['section-title']}>Your Repositories</h2>
-          <Link to="/repositories" className={styles['section-action']}>
-            View all <ArrowRight size={14} />
-          </Link>
-        </div>
+      <div className={styles.grid}>
+        <section aria-labelledby="repos-heading">
+          <div className={styles.sectionHead}>
+            <h2 id="repos-heading">Recently active repositories</h2>
+            <Link to="/repositories" className={styles.more}>View all <ArrowRight size={14} /></Link>
+          </div>
 
-        <div className={styles['repo-grid']}>
           {loading ? (
-             <div style={{ color: 'var(--text-muted)', padding: '24px' }}>Loading repositories...</div>
-          ) : repositories.length === 0 ? (
-             <div style={{ color: 'var(--text-muted)', padding: '24px' }}>You haven't created any repositories yet.</div>
+            <div className={styles.repoGrid}>
+              {[0, 1, 2, 3].map((n) => (
+                <Card key={n}><Skeleton width="55%" height={18} /><div style={{ height: 10 }} /><Skeleton width="85%" /><div style={{ height: 14 }} /><Skeleton width="35%" height={12} /></Card>
+              ))}
+            </div>
+          ) : recentRepos.length === 0 ? (
+            <Card padding="none">
+              <EmptyState
+                title="No repositories yet"
+                description="Create one to start committing, branching and opening pull requests."
+                action={<LinkButton to="/repositories" variant="primary">Go to repositories</LinkButton>}
+              />
+            </Card>
           ) : (
-            repositories.map((repo, i) => (
-              <motion.div
-                key={repo.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.35 + i * 0.08, ease: 'easeOut' }}
-              >
-                <Link to={`/repo/${repo.id}`} className={styles['repo-card']}>
-                  <div className={styles['repo-card-header']}>
-                    <span className={styles['repo-card-dot']} style={{ background: '#3b82f6' }} />
-                    <span className={styles['repo-card-name']}>{repo.name}</span>
-                    <span className={styles['repo-card-visibility']}>{repo.is_private ? 'private' : 'public'}</span>
-                  </div>
-                  <p className={styles['repo-card-desc']}>{repo.description || 'No description provided.'}</p>
-                  <div className={styles['repo-card-meta']}>
-                    <span className={styles['repo-card-meta-item']}>
-                      <span className={styles['repo-card-lang-dot']} style={{ background: '#3178c6' }} />
-                      TS/JS
-                    </span>
-                    <span className={styles['repo-card-meta-item']}>
-                      <Star size={12} /> 0
-                    </span>
-                  </div>
-                </Link>
-              </motion.div>
-            ))
+            <RepoGrid>
+              {recentRepos.map((repo) => <RepoCard key={repo.id} repo={repo} now={now} />)}
+            </RepoGrid>
           )}
-        </div>
-      </motion.div>
+        </section>
 
-      {/* Activity Feed */}
-      <motion.div
-        className={styles.section}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.5, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }}
-      >
-        <div className={styles['section-header']}>
-          <h2 className={styles['section-title']}>Recent Activity</h2>
-          <Link to="/repositories" className={styles['section-action']}>
-            <Clock size={12} /> Full history
-          </Link>
-        </div>
+        <aside className={styles.side}>
+          <section aria-labelledby="prs-heading">
+            <div className={styles.sectionHead}>
+              <h2 id="prs-heading">Open pull requests</h2>
+              <Link to="/pull-requests" className={styles.more}>All <ArrowRight size={14} /></Link>
+            </div>
+            <Card padding="sm">
+              {loading ? (
+                <div className={styles.list}><Skeleton height={36} /><Skeleton height={36} /></div>
+              ) : openPrs.length === 0 ? (
+                <p className={styles.quiet}>Nothing waiting on review.</p>
+              ) : (
+                <ul className={styles.list}>
+                  {openPrs.slice(0, 5).map((pr) => (
+                    <li key={pr.id}>
+                      <Link to={`/repo/${pr.repo_id}/pull-requests/${pr.id}`} className={styles.listItem}>
+                        <GitPullRequest size={16} className={styles.prIcon} />
+                        <span className={styles.listMain}>
+                          <span className={styles.listTitle}>{pr.title}</span>
+                          <span className={styles.listMeta}>{pr.repo?.name} · {pr.source?.name} → {pr.target?.name}</span>
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </section>
 
-        <div className={styles['activity-feed']}>
-          {loading ? (
-            <div style={{ color: 'var(--text-muted)', padding: '24px' }}>Loading activity...</div>
-          ) : activity.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>No recent activity to show.</div>
-          ) : (
-            activity.map((item, i) => {
-              const iconData = feedIconMap[item.type] || feedIconMap.star
-              return (
-                <Link to={item.type === 'issue' ? `/repo/${item.repo_id}/issues/${item.id}` : item.type === 'pr' ? `/repo/${item.repo_id}/pull-requests/${item.id}` : `/repo/${item.repo_id}`} key={i}>
-                  <motion.div
-                    className={styles['activity-feed-item']}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.4, delay: 0.55 + i * 0.08, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }}
-                  >
-                    <div className={`${styles['activity-feed-icon']} ${styles[`activity-feed-icon--${iconData.color}`]}`}>
-                      <iconData.icon size={16} />
-                    </div>
-                    <div className={styles['activity-feed-content']}>
-                      <div className={styles['activity-feed-title']}>
-                        {item.type === 'commit' ? 'Pushed commit to' : item.type === 'pr' ? 'Opened PR on' : 'Opened issue in'}{' '}
-                        <span className={styles['activity-feed-repo']}>{item.repo?.name || 'repository'}</span>
-                      </div>
-                      <div className={styles['activity-feed-msg']}>{item.message || item.title || 'No message provided'}</div>
-                      <div className={styles['activity-feed-time']}>{new Date(item.created_at).toLocaleTimeString()}</div>
-                    </div>
-                    <ArrowUpRight size={14} style={{ color: 'var(--text-muted)' }} />
-                  </motion.div>
-                </Link>
-              )
-            })
-          )}
-        </div>
-      </motion.div>
+          <section aria-labelledby="activity-heading">
+            <div className={styles.sectionHead}>
+              <h2 id="activity-heading">Your activity</h2>
+            </div>
+            <Card padding="sm">
+              {loading ? (
+                <div className={styles.list}><Skeleton height={40} /><Skeleton height={40} /><Skeleton height={40} /></div>
+              ) : activity.length === 0 ? (
+                <p className={styles.quiet}>No activity yet — commit something!</p>
+              ) : (
+                <ol className={styles.timeline}>
+                  {activity.slice(0, 8).map((item) => {
+                    const Icon = ACTIVITY_ICON[item.type] || GitCommitHorizontal
+                    const hot = heatOf(item.created_at, now) === 'molten'
+                    return (
+                      <li key={`${item.type}-${item.id}`} className={styles.timelineItem}>
+                        <span className={`${styles.timelineIcon} ${hot ? styles.timelineHot : ''}`}><Icon size={14} /></span>
+                        <span className={styles.listMain}>
+                          <span className={styles.listTitle}>{item.message || item.title || 'Untitled'}</span>
+                          <span className={styles.listMeta}>
+                            {ACTIVITY_VERB[item.type]}{' '}
+                            {item.repo_id ? <Link to={`/repo/${item.repo_id}`}>{item.repo?.name || 'a repository'}</Link> : item.repo?.name}
+                            {' · '}{timeAgo(item.created_at, now)}
+                          </span>
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ol>
+              )}
+            </Card>
+          </section>
+        </aside>
+      </div>
     </div>
   )
 }

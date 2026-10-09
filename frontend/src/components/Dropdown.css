@@ -1,16 +1,14 @@
-/* Dropdown Menus */
+/* Dropdown menus (legacy global classes; tokenized for both themes) */
 .dropdown-menu {
   position: absolute;
-  top: calc(100% + var(--spacing-sm));
+  top: calc(100% + var(--space-2));
   right: 0;
-  background: var(--bg-glass-hover);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--border-glass-hover);
-  border-radius: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
   min-width: 200px;
-  padding: 8px;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  padding: var(--space-2);
+  box-shadow: var(--shadow-3);
   transform-origin: top right;
   z-index: 100;
 }
@@ -18,29 +16,33 @@
 .dropdown-item {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--space-2);
   width: 100%;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   background: transparent;
   border: none;
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  font-family: var(--font-sans);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
   font-weight: 500;
   cursor: pointer;
   text-align: left;
-  transition: all 0.2s;
   text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 
-.dropdown-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
+.dropdown-item:hover,
+.dropdown-item.active {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.dropdown-item.active {
+  box-shadow: inset 2px 0 0 var(--color-ember);
 }
 
 .dropdown-divider {
   height: 1px;
-  background: var(--border-glass);
-  margin: 6px 0;
+  background: var(--color-border);
+  margin: var(--space-2) 0;
 }

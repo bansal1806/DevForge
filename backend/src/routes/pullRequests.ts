@@ -3,7 +3,7 @@ import { AuthenticatedRequest, requireAuth, optionalAuth } from '../middleware/a
 import { verifyRepoAccess, getRepoAccess, hasLevel, denyRepoAccess, RepoLevel } from '../middleware/authorize';
 import { supabaseAdmin } from '../lib/supabase';
 import { PUBLIC_USER_COLUMNS, isUuid, isRequiredText, isOptionalText } from '../lib/validation';
-import { buildPullRequestDiff, getBranchById } from '../utils/versioning';
+import { buildPullRequestDiff, getBranchById, previewMerge } from '../utils/versioning';
 import { logAudit } from '../utils/audit';
 import { logger } from '../utils/logger';
 
@@ -169,15 +169,20 @@ router.get('/:id', optionalAuth, async (req: AuthenticatedRequest, res: Response
     if (!loaded) return;
     const { pr, access } = loaded;
 
-    const diff = await buildPullRequestDiff(
-      (pr.source as any)?.last_commit_id || null,
-      (pr.target as any)?.last_commit_id || null
-    );
+    const [diff, mergePreview] = await Promise.all([
+      buildPullRequestDiff(
+        (pr.source as any)?.last_commit_id || null,
+        (pr.target as any)?.last_commit_id || null
+      ),
+      // Read-only dry run, so anyone who can see the PR sees whether it can merge
+      pr.status === 'open' ? previewMerge(pr.id, req.user?.id || pr.author_id) : Promise.resolve(null),
+    ]);
 
     const { repo, ...rest } = pr as any;
     res.json({
       pr: { ...rest, repo: repo && { id: repo.id, name: repo.name } },
       diff,
+      mergePreview,
       permissions: {
         canMerge: hasLevel(access, 'admin'),
         canClose: hasLevel(access, 'write') || pr.author_id === req.user?.id,

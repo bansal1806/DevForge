@@ -44,13 +44,25 @@ beforeAll(async () => {
     GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
+
+    -- Minimal stand-in for Supabase Realtime's schema
+    CREATE SCHEMA realtime;
+    CREATE TABLE realtime.messages (id bigserial PRIMARY KEY, topic text, extension text, payload jsonb);
+    ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
+    CREATE FUNCTION realtime.topic() RETURNS text LANGUAGE sql STABLE AS
+      $$ SELECT nullif(current_setting('realtime.topic', true), '') $$;
+    GRANT USAGE ON SCHEMA realtime TO anon, authenticated;
+    GRANT SELECT, INSERT ON realtime.messages TO authenticated;
+    GRANT USAGE ON SEQUENCE realtime.messages_id_seq TO authenticated;
   `);
 
   for (const file of migrationFiles()) {
     await db.exec(fs.readFileSync(path.join(ROOT, file), 'utf8'));
   }
-  // Re-applying must be safe
-  await db.exec(fs.readFileSync(path.join(ROOT, 'migrations/009_security_hardening.sql'), 'utf8'));
+  // Re-applying the whole sequence must be safe (every migration is idempotent)
+  for (const file of migrationFiles().filter((f) => f.startsWith('migrations/'))) {
+    await db.exec(fs.readFileSync(path.join(ROOT, file), 'utf8'));
+  }
 
   await db.exec(`
     INSERT INTO auth.users (id, email, raw_user_meta_data) VALUES
@@ -181,9 +193,17 @@ describe('commits and three-way merge', () => {
     expect(await files(main)).toEqual({ 'a.txt': 'feat-a', 'c.txt': 'main-c', 'd.txt': 'new-d' });
 
     const snapshot = Object.fromEntries((await q<{ path: string; content: string }>(
-      `SELECT s.path, s.content FROM file_snapshots s JOIN branches b ON b.last_commit_id = s.commit_id WHERE b.id = $1`, [main]
+      `SELECT t.path, t.content FROM branches b, commit_tree(b.last_commit_id) t WHERE b.id = $1`, [main]
     )).map((r) => [r.path, r.content]));
     expect(snapshot).toEqual(await files(main));
+
+    // The PR diff is computed from hashes in SQL: changes since the merge base
+    const diff = await q(`SELECT * FROM diff_commits($1, $2)`, [c2.id, c1.id]);
+    expect(diff).toEqual([
+      { path: 'a.txt', status: 'modified', content: 'feat-a', original_content: 'base-a' },
+      { path: 'b.txt', status: 'deleted', content: null, original_content: 'base-b' },
+      { path: 'd.txt', status: 'added', content: 'new-d', original_content: null },
+    ]);
 
     expect((await one(`SELECT status FROM pull_requests WHERE id = $1`, [pr])).status).toBe('merged');
     await expect(merge(pr)).rejects.toThrow(/not open/);
@@ -197,6 +217,9 @@ describe('commits and three-way merge', () => {
     await commit(main, 'main a2');
 
     const pr = await openPr(feat);
+    // The preview reports the conflict without changing anything
+    expect((await one(`SELECT merge_pull_request($1, '${A}', true) AS r`, [pr])).r)
+      .toEqual({ mergeable: false, conflicts: ['a.txt'], changes: 0 });
     expect(await merge(pr)).toEqual({ merged: false, conflicts: ['a.txt'] });
     expect((await one(`SELECT status FROM pull_requests WHERE id = $1`, [pr])).status).toBe('open');
   });
@@ -212,9 +235,133 @@ describe('commits and three-way merge', () => {
     await db.exec('RESET ROLE');
   });
 
+  it('previews a clean merge without applying it', async () => {
+    await commit(main, 'commit pending work'); // start from a clean target working tree
+    const feat = await branchFrom('feature/preview');
+    await q(`INSERT INTO files (repo_id, branch_id, path, content) VALUES ($1, $2, 'p.txt', 'preview')`, [repo, feat]);
+    await commit(feat, 'preview');
+    const pr = await openPr(feat);
+    const before = await files(main);
+
+    expect((await one(`SELECT merge_pull_request($1, '${A}', true) AS r`, [pr])).r)
+      .toEqual({ mergeable: true, conflicts: [], changes: 1 });
+    expect(await files(main)).toEqual(before);
+    expect((await one(`SELECT status FROM pull_requests WHERE id = $1`, [pr])).status).toBe('open');
+  });
+
+  it('stores each distinct file content once', async () => {
+    const blobsBefore = Number((await one(`SELECT count(*) AS n FROM blobs`)).n);
+    const rowsBefore = Number((await one(`SELECT count(*) AS n FROM file_snapshots`)).n);
+    await commit(main, 'no-op commit 1');
+    await commit(main, 'no-op commit 2');
+    expect(Number((await one(`SELECT count(*) AS n FROM blobs`)).n)).toBe(blobsBefore);
+    expect(Number((await one(`SELECT count(*) AS n FROM file_snapshots`)).n)).toBeGreaterThan(rowsBefore);
+
+    const stats = (await one(`SELECT snapshot_storage_stats() AS s`)).s;
+    expect(stats.logical_bytes).toBeGreaterThan(stats.stored_bytes);
+  });
+
+  it('migrates legacy inline snapshot content into blobs', async () => {
+    const c = await commit(main, 'legacy holder');
+    await q(`INSERT INTO file_snapshots (commit_id, repo_id, path, content) VALUES ($1, $2, 'legacy.txt', 'old inline text')`, [c.id, repo]);
+    await db.exec(fs.readFileSync(path.join(ROOT, 'migrations/010_content_addressed_snapshots.sql'), 'utf8'));
+
+    const row = await one(`SELECT content, blob_hash FROM file_snapshots WHERE commit_id = $1 AND path = 'legacy.txt'`, [c.id]);
+    expect(row.content).toBeNull();
+    expect(row.blob_hash).toMatch(/^[0-9a-f]{64}$/);
+    const tree = await q(`SELECT content FROM commit_tree($1) WHERE path = 'legacy.txt'`, [c.id]);
+    expect(tree).toEqual([{ content: 'old inline text' }]);
+  });
+
+  it('never garbage-collects referenced or recently used blobs', async () => {
+    await q(`INSERT INTO blobs (hash, content, last_used_at) VALUES (repeat('a', 64), 'orphan', now() - interval '2 days')`);
+    await q(`INSERT INTO blobs (hash, content) VALUES (repeat('b', 64), 'fresh orphan')`);
+    const referenced = Number((await one(`SELECT count(*) AS n FROM blobs WHERE hash IN (SELECT blob_hash FROM file_snapshots)`)).n);
+
+    expect((await one(`SELECT gc_blobs() AS n`)).n).toBe(1);
+    expect(await q(`SELECT hash FROM blobs WHERE hash = repeat('a', 64)`)).toHaveLength(0);
+    expect(await q(`SELECT hash FROM blobs WHERE hash = repeat('b', 64)`)).toHaveLength(1);
+    expect(Number((await one(`SELECT count(*) AS n FROM blobs WHERE hash IN (SELECT blob_hash FROM file_snapshots)`)).n)).toBe(referenced);
+  });
+
   it('keeps versioning functions service-role only', async () => {
     await expect(asRole(B, () => q(`SELECT create_commit($1, $2, '${B}', 'x')`, [repo, main]))).rejects.toThrow(/permission denied/);
     await expect(asRole(B, () => q(`SELECT merge_base(NULL, NULL)`))).rejects.toThrow(/permission denied/);
+    await expect(asRole(B, () => q(`SELECT * FROM diff_commits(NULL, NULL)`))).rejects.toThrow(/permission denied/);
+    await expect(asRole(B, () => q(`SELECT * FROM blobs`))).rejects.toThrow(/permission denied/);
+  });
+});
+
+describe('shared rate limits', () => {
+  const hit = async (key: string) => (await one(`SELECT rate_limit_hit($1, 60000) AS r`, [key])).r;
+
+  it('counts hits per key within a window', async () => {
+    expect((await hit('auth:k1')).hits).toBe(1);
+    expect((await hit('auth:k1')).hits).toBe(2);
+    expect((await hit('auth:k2')).hits).toBe(1);
+
+    const r = await hit('auth:k1');
+    expect(r.hits).toBe(3);
+    expect(new Date(r.reset_at).getTime()).toBeGreaterThan(Date.now() - 1000);
+  });
+
+  it('supports decrement and reset', async () => {
+    await q(`SELECT rate_limit_decrement('auth:k1', 60000)`);
+    expect((await hit('auth:k1')).hits).toBe(3);
+    await q(`SELECT rate_limit_reset('auth:k1')`);
+    expect((await hit('auth:k1')).hits).toBe(1);
+  });
+
+  it('rejects tiny windows and is service-role only', async () => {
+    await expect(q(`SELECT rate_limit_hit('x', 10)`)).rejects.toThrow(/at least 1000ms/);
+    await expect(asRole(A, () => q(`SELECT rate_limit_hit('x', 60000)`))).rejects.toThrow(/permission denied/);
+    await expect(asRole(A, () => q(`SELECT * FROM rate_limits`))).rejects.toThrow(/permission denied/);
+  });
+});
+
+describe('realtime channel authorization', () => {
+  const C = '00000000-0000-0000-0000-00000000000c';
+  let repo: string;
+
+  const onTopic = (topic: string) => db.query(`SELECT set_config('realtime.topic', $1, false)`, [topic]);
+  const send = (uid: string, extension: 'broadcast' | 'presence') =>
+    asRole(uid, () => q(`INSERT INTO realtime.messages (topic, extension, payload) VALUES (realtime.topic(), $1, '{}')`, [extension]));
+  const visible = (uid: string) => asRole(uid, () => q(`SELECT id FROM realtime.messages WHERE topic = realtime.topic()`));
+
+  beforeAll(async () => {
+    await q(`INSERT INTO auth.users (id, email) VALUES ('${C}', 'c@x.com')`);
+    await db.exec('SET ROLE service_role');
+    repo = (await one(`INSERT INTO repositories (name, owner_id, is_private) VALUES ('live', '${A}', true) RETURNING id`)).id;
+    await db.exec('RESET ROLE');
+    await onTopic(`repo:${repo}`);
+  });
+
+  it('lets the owner broadcast, track presence and receive', async () => {
+    await expect(send(A, 'broadcast')).resolves.toBeDefined();
+    await expect(send(A, 'presence')).resolves.toBeDefined();
+    expect((await visible(A)).length).toBe(2);
+  });
+
+  it('shuts strangers out of private repo channels', async () => {
+    await expect(send(C, 'presence')).rejects.toThrow(/row-level security/);
+    await expect(send(C, 'broadcast')).rejects.toThrow(/row-level security/);
+    expect(await visible(C)).toHaveLength(0);
+  });
+
+  it('lets read collaborators listen and show presence, but not broadcast edits', async () => {
+    await db.exec('SET ROLE service_role');
+    await q(`INSERT INTO repo_collaborators (repo_id, user_id, permission) VALUES ($1, '${C}', 'read')`, [repo]);
+    await db.exec('RESET ROLE');
+
+    await expect(send(C, 'presence')).resolves.toBeDefined();
+    await expect(send(C, 'broadcast')).rejects.toThrow(/row-level security/);
+    expect((await visible(C)).length).toBeGreaterThan(0);
+  });
+
+  it('denies malformed topics', async () => {
+    await onTopic('repo:not-a-uuid');
+    await expect(send(A, 'presence')).rejects.toThrow(/row-level security/);
+    await onTopic(`repo:${repo}`);
   });
 });
 

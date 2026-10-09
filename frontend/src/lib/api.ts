@@ -23,6 +23,11 @@ export function getMergeConflicts(err: unknown): string[] {
 
 export type RepoPermission = 'read' | 'write' | 'admin'
 
+/** List endpoints must yield arrays; anything else (proxy error page, bad deploy) becomes empty. */
+function asList<T>(data: T[] | null | undefined): T[] {
+  return Array.isArray(data) ? data : []
+}
+
 export interface PublicUser {
   id: string
   name: string | null
@@ -95,9 +100,18 @@ export interface DiffEntry {
 
 export type DiffMap = Record<string, DiffEntry>
 
+export interface MergePreview {
+  mergeable: boolean
+  conflicts: string[]
+  /** Files the merge would change on the target branch */
+  changes: number
+}
+
 export interface PullRequestDetail {
   pr: PullRequest
   diff: DiffMap
+  /** Dry-run of the merge; null when not applicable (closed, no commits) */
+  mergePreview: MergePreview | null
   permissions: { canMerge: boolean, canClose: boolean }
 }
 
@@ -166,13 +180,22 @@ export interface Commit {
   author_id: string | null
   message: string
   created_at: string
+  parent_id?: string | null
+  merge_parent_id?: string | null
   author?: PublicUser | null
+  branch?: { id: string, name: string } | null
+}
+
+export interface CommitDetail {
+  commit: Commit
+  /** Changes introduced by the commit (vs. its first parent) */
+  diff: DiffMap
 }
 
 // Repositories
 export async function getRepositories(): Promise<Repository[]> {
   const { data } = await apiClient.get<Repository[]>('/api/repos')
-  return data || []
+  return asList(data)
 }
 
 export async function createRepository(repoData: { name: string, description: string, isPrivate: boolean }): Promise<Repository> {
@@ -182,7 +205,7 @@ export async function createRepository(repoData: { name: string, description: st
 
 export async function getActivity(): Promise<ActivityItem[]> {
   const { data } = await apiClient.get<ActivityItem[]>('/api/activity')
-  return data || []
+  return asList(data)
 }
 
 export async function getRepositoryById(repoId: string): Promise<Repository | null> {
@@ -199,12 +222,12 @@ export async function getExploreRepos(query?: string): Promise<Repository[]> {
   const { data } = await apiClient.get<Repository[]>('/api/repos/explore', {
     params: query ? { q: query } : undefined
   })
-  return data || []
+  return asList(data)
 }
 
 export async function getStarredRepos(): Promise<Repository[]> {
   const { data } = await apiClient.get<Repository[]>('/api/repos/starred')
-  return data || []
+  return asList(data)
 }
 
 export async function toggleStar(repoId: string): Promise<{ starred: boolean, stars_count: number }> {
@@ -214,7 +237,7 @@ export async function toggleStar(repoId: string): Promise<{ starred: boolean, st
 
 export async function getRepoMetrics(repoId: string): Promise<ExecutionStat[]> {
   const { data } = await apiClient.get<ExecutionStat[]>(`/api/repos/${repoId}/metrics`)
-  return data || []
+  return asList(data)
 }
 
 export async function updateRepository(
@@ -232,14 +255,14 @@ export async function deleteRepository(repoId: string): Promise<void> {
 // Branches & Files
 export async function getBranches(repoId: string): Promise<Branch[]> {
   const { data } = await apiClient.get<Branch[]>(`/api/repos/${repoId}/branches`)
-  return data || []
+  return asList(data)
 }
 
 export async function getFiles(repoId: string, branchId: string): Promise<FileNode[]> {
   const { data } = await apiClient.get<FileNode[]>(`/api/repos/${repoId}/files`, {
     params: { branchId }
   })
-  return data || []
+  return asList(data)
 }
 
 export async function saveFile(repoId: string, branchId: string, path: string, content: string): Promise<FileNode> {
@@ -260,7 +283,12 @@ export async function getCommits(repoId: string, branchId?: string): Promise<Com
   const { data } = await apiClient.get<Commit[]>(`/api/repos/${repoId}/commits`, {
     params: branchId ? { branchId } : undefined
   })
-  return data || []
+  return asList(data)
+}
+
+export async function getCommitDetail(repoId: string, commitId: string): Promise<CommitDetail> {
+  const { data } = await apiClient.get<CommitDetail>(`/api/repos/${repoId}/commits/${commitId}`)
+  return data
 }
 
 export async function createBranch(repoId: string, name: string, fromBranchId?: string): Promise<Branch> {
@@ -271,12 +299,12 @@ export async function createBranch(repoId: string, name: string, fromBranchId?: 
 // Pull Requests
 export async function getPullRequests(): Promise<PullRequest[]> {
   const { data } = await apiClient.get<PullRequest[]>('/api/pull-requests')
-  return data || []
+  return asList(data)
 }
 
 export async function getRepoPullRequests(repoId: string): Promise<PullRequest[]> {
   const { data } = await apiClient.get<PullRequest[]>(`/api/pull-requests/repo/${repoId}`)
-  return data || []
+  return asList(data)
 }
 
 export async function createPullRequest(prData: {
@@ -302,7 +330,7 @@ export async function updatePullRequest(id: string, updates: { status?: 'open' |
 
 export async function getPRActivity(prId: string): Promise<DiscussionItem[]> {
   const { data } = await apiClient.get<DiscussionItem[]>(`/api/pull-requests/${prId}/activity`)
-  return data || []
+  return asList(data)
 }
 
 export async function postPRComment(prId: string, content: string): Promise<DiscussionItem> {
@@ -324,12 +352,12 @@ export async function mergePullRequest(prId: string): Promise<{ message: string,
 // Issues
 export async function getIssues(): Promise<Issue[]> {
   const { data } = await apiClient.get<Issue[]>('/api/issues')
-  return data || []
+  return asList(data)
 }
 
 export async function getRepoIssues(repoId: string): Promise<Issue[]> {
   const { data } = await apiClient.get<Issue[]>(`/api/issues/repos/${repoId}`)
-  return data || []
+  return asList(data)
 }
 
 export async function createIssue(repoId: string, issueData: { title: string, description: string }): Promise<Issue> {
@@ -349,7 +377,7 @@ export async function updateIssue(id: string, updates: { status?: 'open' | 'clos
 
 export async function getIssueComments(issueId: string): Promise<DiscussionItem[]> {
   const { data } = await apiClient.get<DiscussionItem[]>(`/api/issues/${issueId}/comments`)
-  return data || []
+  return asList(data)
 }
 
 export async function postIssueComment(issueId: string, content: string): Promise<DiscussionItem> {
@@ -360,12 +388,12 @@ export async function postIssueComment(issueId: string, content: string): Promis
 // Gists
 export async function getGists(): Promise<Gist[]> {
   const { data } = await apiClient.get<Gist[]>('/api/gists')
-  return data || []
+  return asList(data)
 }
 
 export async function getMyGists(): Promise<Gist[]> {
   const { data } = await apiClient.get<Gist[]>('/api/gists/mine')
-  return data || []
+  return asList(data)
 }
 
 export async function createGist(gistData: {
@@ -449,12 +477,12 @@ export async function getUserProfile(userId: string): Promise<UserProfile> {
 
 export async function getUserActivity(userId: string): Promise<ActivityItem[]> {
   const { data } = await apiClient.get<ActivityItem[]>(`/api/users/${userId}/activity`)
-  return data || []
+  return asList(data)
 }
 
 export async function getUserRepos(userId: string): Promise<Repository[]> {
   const { data } = await apiClient.get<Repository[]>(`/api/users/${userId}/repos`)
-  return data || []
+  return asList(data)
 }
 
 export interface CurrentUser {
@@ -474,6 +502,19 @@ export async function getCurrentUser(): Promise<CurrentUser> {
 
 export async function updateProfile(updates: { name?: string, bio?: string, avatar_url?: string }): Promise<UserProfile> {
   const { data } = await apiClient.put<UserProfile>('/api/auth/profile', updates)
+  return data
+}
+
+// Public platform stats (landing page)
+export interface PlatformStats {
+  publicRepositories: number
+  commits: number
+  mergedPullRequests: number
+  developers: number
+}
+
+export async function getPlatformStats(): Promise<PlatformStats> {
+  const { data } = await apiClient.get<PlatformStats>('/api/stats')
   return data
 }
 
@@ -501,10 +542,20 @@ export interface AuditLog {
   repository?: { name: string } | null
 }
 
+export interface StorageStats {
+  snapshot_rows: number
+  blob_count: number
+  /** Bytes actually stored (each distinct file content once) */
+  stored_bytes: number
+  /** Bytes a naive copy-every-file-per-commit design would store */
+  logical_bytes: number
+}
+
 export interface AdminMetrics {
   executions: ExecutionStat[]
   users: number
   repos: number
+  storage: StorageStats | null
 }
 
 export async function getSystemHealth(): Promise<SystemHealth> {
@@ -519,5 +570,5 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
 
 export async function getAdminLogs(): Promise<AuditLog[]> {
   const { data } = await apiClient.get<AuditLog[]>('/api/admin/logs')
-  return data || []
+  return asList(data)
 }

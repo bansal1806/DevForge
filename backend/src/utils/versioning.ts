@@ -72,39 +72,27 @@ export interface DiffEntry {
   originalContent: string | null;
 }
 
-async function snapshotMap(commitId: string | null) {
-  const map = new Map<string, string | null>();
-  if (!commitId) return map;
-  const { data, error } = await supabaseAdmin
-    .from('file_snapshots')
-    .select('path, content')
-    .eq('commit_id', commitId);
-  if (error) throw new Error(`Failed to read snapshots: ${error.message}`);
-  for (const row of data || []) map.set(row.path, row.content);
-  return map;
-}
-
 /**
- * Computes a path-keyed diff from the snapshot set of `baseCommitId` to that
- * of `headCommitId`.
+ * Path-keyed diff from `baseCommitId`'s tree to `headCommitId`'s tree.
+ * Computed in SQL (migration 010): unchanged files are skipped by comparing
+ * content hashes, so only changed files are ever loaded.
  */
 export async function buildCommitDiff(
   headCommitId: string | null,
   baseCommitId: string | null
 ): Promise<Record<string, DiffEntry>> {
-  const [head, base] = await Promise.all([snapshotMap(headCommitId), snapshotMap(baseCommitId)]);
+  if (!headCommitId && !baseCommitId) return {};
+
+  const { data, error } = await supabaseAdmin.rpc('diff_commits', {
+    p_head: headCommitId,
+    p_base: baseCommitId,
+  });
+  if (error) throw new Error(`Failed to diff commits: ${error.message}`);
+
   const diffMap: Record<string, DiffEntry> = {};
-
-  head.forEach((content, path) => {
-    if (!base.has(path)) diffMap[path] = { status: 'added', content, originalContent: null };
-    else if (base.get(path) !== content)
-      diffMap[path] = { status: 'modified', content, originalContent: base.get(path) ?? null };
-  });
-
-  base.forEach((content, path) => {
-    if (!head.has(path)) diffMap[path] = { status: 'deleted', content: null, originalContent: content };
-  });
-
+  for (const row of (data || []) as { path: string; status: DiffEntry['status']; content: string | null; original_content: string | null }[]) {
+    diffMap[row.path] = { status: row.status, content: row.content, originalContent: row.original_content };
+  }
   return diffMap;
 }
 
@@ -116,6 +104,23 @@ export async function buildCommitDiff(
 export async function buildPullRequestDiff(sourceHead: string | null, targetHead: string | null) {
   const base = await getMergeBase(sourceHead, targetHead);
   return buildCommitDiff(sourceHead, base ?? targetHead);
+}
+
+export interface MergePreview {
+  mergeable: boolean;
+  conflicts: string[];
+  /** Number of files the merge would change on the target */
+  changes: number;
+}
+
+/**
+ * Dry-runs the three-way merge without changing anything. Returns null when a
+ * preview isn't meaningful (PR not open, source branch has no commits).
+ */
+export async function previewMerge(prId: string, userId: string): Promise<MergePreview | null> {
+  const { data, error } = await supabaseAdmin.rpc('merge_pull_request', { p_pr: prId, p_user: userId, p_dry_run: true });
+  if (error) return null;
+  return data as MergePreview;
 }
 
 /**

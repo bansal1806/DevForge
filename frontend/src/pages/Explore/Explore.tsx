@@ -1,143 +1,105 @@
-import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import { Link, useSearchParams } from 'react-router-dom'
-import { BookOpen, GitFork, Star, TrendingUp, Clock, Search } from 'lucide-react'
-import { getExploreRepos } from '../../lib/api'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Clock, Compass, Star, TrendingUp } from 'lucide-react'
+import { getExploreRepos, getErrorMessage } from '../../lib/api'
 import type { Repository } from '../../lib/api'
-import styles from '../shared/SharedPages.module.css'
+import { Button, Card, EmptyState, PageHeader, SearchField, Segmented, Skeleton } from '../../components/ui'
+import { RepoCard, RepoGrid } from '../../components/RepoCard/RepoCard'
+import styles from '../shared/Browse.module.css'
 
-const itemVariants = {
-  hidden: { opacity: 0, y: 15 },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: {
-      delay: i * 0.05,
-      duration: 0.4,
-      ease: [0.22, 1, 0.36, 1] as [number, number, number, number]
-    }
-  }),
-}
+type SortMode = 'active' | 'stars' | 'newest'
 
-type SortMode = 'trending' | 'stars' | 'newest'
+/** Wait this long after typing stops before searching the server. */
+const SEARCH_DEBOUNCE_MS = 300
 
 export default function Explore() {
-  const [repos, setRepos] = useState<Repository[]>([])
-  const [loading, setLoading] = useState(true)
-  const [sort, setSort] = useState<SortMode>('trending')
   const [searchParams, setSearchParams] = useSearchParams()
   const query = searchParams.get('q') || ''
-  const [searchInput, setSearchInput] = useState(query)
+  const [input, setInput] = useState(query)
+  const [repos, setRepos] = useState<Repository[]>([])
+  const [loadedQuery, setLoadedQuery] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [sort, setSort] = useState<SortMode>('active')
+  const [now, setNow] = useState(() => Date.now())
 
-  // Keep the input in sync when the URL query changes (back/forward, links)
+  // Keep the input in sync when the URL query changes (back/forward, palette links)
   const [syncedQuery, setSyncedQuery] = useState(query)
   if (query !== syncedQuery) {
     setSyncedQuery(query)
-    setSearchInput(query)
-    setLoading(true)
+    setInput(query)
   }
+
+  // Debounce typing into the URL; the URL drives the fetch
+  useEffect(() => {
+    if (input.trim() === query) return
+    const t = window.setTimeout(() => setSearchParams(input.trim() ? { q: input.trim() } : {}, { replace: true }), SEARCH_DEBOUNCE_MS)
+    return () => window.clearTimeout(t)
+  }, [input, query, setSearchParams])
 
   useEffect(() => {
     let cancelled = false
     getExploreRepos(query || undefined)
-      .then((result) => { if (!cancelled) setRepos(result) })
-      .catch(console.error)
-      .finally(() => { if (!cancelled) setLoading(false) })
+      .then((result) => {
+        if (cancelled) return
+        setRepos(result)
+        setError(null)
+        setNow(Date.now())
+      })
+      .catch((err) => { if (!cancelled) setError(getErrorMessage(err, 'Could not load public repositories.')) })
+      .finally(() => { if (!cancelled) setLoadedQuery(query) })
     return () => { cancelled = true }
   }, [query])
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    setSearchParams(searchInput.trim() ? { q: searchInput.trim() } : {})
-  }
+  const loading = loadedQuery !== query
 
-  const sortedRepos = [...repos].sort((a, b) => {
+  const sorted = useMemo(() => [...repos].sort((a, b) => {
     if (sort === 'stars') return (b.stars_count || 0) - (a.stars_count || 0)
     if (sort === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-  })
+  }), [repos, sort])
 
   return (
-    <div className={styles['page-shell']}>
-      <motion.div
-        className={styles['page-header']}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        <h1 className={styles['page-title']}><BookOpen size={24} /> Explore</h1>
-        <p className={styles['page-subtitle']}>Discover public repositories and projects.</p>
-      </motion.div>
+    <div className={styles.page}>
+      <PageHeader icon={<Compass size={26} />} title="Explore" subtitle="Public repositories from across the forge." />
 
-      <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-        <div style={{ position: 'relative', flex: 1 }}>
-          <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-          <input
-            type="text"
-            placeholder="Search public repositories..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '10px 12px 10px 36px',
-              borderRadius: '10px',
-              border: '1px solid rgba(255,255,255,0.1)',
-              background: 'rgba(255,255,255,0.04)',
-              color: 'var(--text-primary, white)',
-              fontSize: '0.9rem',
-            }}
-          />
-        </div>
-        <button type="submit" className="btn-ghost">Search</button>
-      </form>
-
-      <div className={styles['filters-bar']}>
-        <button
-          className={`${styles['filter-btn']} ${sort === 'trending' ? styles['filter-btn--active'] : ''}`}
-          onClick={() => setSort('trending')}
-        >
-          <TrendingUp size={14} /> Recently Active
-        </button>
-        <button
-          className={`${styles['filter-btn']} ${sort === 'stars' ? styles['filter-btn--active'] : ''}`}
-          onClick={() => setSort('stars')}
-        >
-          <Star size={14} /> Most Stars
-        </button>
-        <button
-          className={`${styles['filter-btn']} ${sort === 'newest' ? styles['filter-btn--active'] : ''}`}
-          onClick={() => setSort('newest')}
-        >
-          <Clock size={14} /> Recently Created
-        </button>
+      <div className={styles.toolbar}>
+        <SearchField className={styles.search} label="Search public repositories" placeholder="Search public repositories…" value={input} onChange={setInput} />
+        <Segmented
+          label="Sort by"
+          value={sort}
+          onChange={setSort}
+          options={[
+            { value: 'active', label: 'Recently active', icon: <TrendingUp size={14} /> },
+            { value: 'stars', label: 'Most stars', icon: <Star size={14} /> },
+            { value: 'newest', label: 'Newest', icon: <Clock size={14} /> },
+          ]}
+        />
       </div>
 
+      {!loading && !error && query && (
+        <p className={styles.resultNote} role="status">
+          <strong>{repos.length}</strong> result{repos.length === 1 ? '' : 's'} for “{query}”
+        </p>
+      )}
+
       {loading ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading repositories...</div>
-      ) : sortedRepos.length === 0 ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          {query ? `No repositories found for "${query}".` : 'No repositories to explore yet.'}
+        <div className={styles.skeletonGrid} aria-busy="true">
+          {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} height={128} radius="var(--radius-lg)" />)}
         </div>
+      ) : error ? (
+        <Card padding="none"><EmptyState title="Couldn’t load repositories" description={error} /></Card>
+      ) : sorted.length === 0 ? (
+        <Card padding="none">
+          <EmptyState
+            title={query ? 'Nothing found' : 'Nothing to explore yet'}
+            description={query ? `No public repositories match “${query}”.` : 'When people publish public repositories they’ll show up here.'}
+            action={query ? <Button size="sm" variant="secondary" onClick={() => setInput('')}>Clear search</Button> : undefined}
+          />
+        </Card>
       ) : (
-        sortedRepos.map((repo, i) => (
-          <motion.div key={repo.id} custom={i} variants={itemVariants} initial="hidden" animate="visible">
-            <Link to={`/repo/${repo.id}`} className={styles['list-item']}>
-              <div className={styles['list-item-icon']} style={{ background: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6' }}>
-                <GitFork size={18} />
-              </div>
-              <div className={styles['list-item-content']}>
-                <div className={styles['list-item-title']}>
-                  {repo.owner?.name || 'DevForge'}/{repo.name}
-                </div>
-                <div className={styles['list-item-desc']}>{repo.description || 'No description provided.'}</div>
-                <div className={styles['list-item-meta']}>
-                  <span className={styles['list-item-meta-tag']}><Star size={12} /> {repo.stars_count || 0}</span>
-                  <span className={styles['list-item-meta-tag']}>Updated {new Date(repo.updated_at).toLocaleDateString()}</span>
-                </div>
-              </div>
-            </Link>
-          </motion.div>
-        ))
+        <RepoGrid key={`${query}-${sort}`}>
+          {sorted.map((repo) => <RepoCard key={repo.id} repo={repo} now={now} showOwner />)}
+        </RepoGrid>
       )}
     </div>
   )

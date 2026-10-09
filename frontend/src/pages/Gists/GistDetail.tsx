@@ -1,38 +1,56 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { 
-  Code2, 
-  Globe, 
-  Lock, 
-  ChevronLeft,
-  Calendar,
-  FileCode,
-  Copy,
-  Download,
-  ExternalLink
-} from 'lucide-react'
+import { ChevronLeft, Calendar, FileCode, Copy, Download, Globe, Link2, Lock } from 'lucide-react'
 import Editor from '@monaco-editor/react'
-import { getGistById, type Gist } from '../../lib/api'
+import { getGistById, getErrorMessage, type Gist, type GistFile } from '../../lib/api'
+import { Avatar, Badge, EmptyState, IconButton, LinkButton, Skeleton, Spinner, toast } from '../../components/ui'
+import { useTheme } from '../../contexts/ThemeContext'
+import { fileColor, languageLabel, monacoLanguage } from '../../lib/fileLang'
+import { fadeUp, stagger } from '../../lib/motion'
+import { timeAgo } from '../../lib/time'
+import detail from '../shared/Detail.module.css'
 import styles from './GistDetail.module.css'
-import issueStyles from '../Issues/IssueDetail.module.css'
+
+/** Editor height bounds, in lines, so short files stay compact and long ones scroll. */
+const MIN_LINES = 3
+const MAX_LINES = 32
+const LINE_HEIGHT = 20
+
+async function copy(text: string, what: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success(`${what} copied`)
+  } catch {
+    toast.error('Could not copy — your browser blocked clipboard access.')
+  }
+}
+
+function download(file: GistFile) {
+  const url = URL.createObjectURL(new Blob([file.content], { type: 'text/plain;charset=utf-8' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = file.filename.split('/').pop() || 'snippet.txt'
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 export default function GistDetail() {
   const { id } = useParams<{ id: string }>()
   const [gist, setGist] = useState<Gist | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [now] = useState(() => Date.now())
+  const { resolved } = useTheme()
 
   useEffect(() => {
     async function fetchGist() {
       if (!id) return
       setLoading(true)
       try {
-        const data = await getGistById(id)
-        setGist(data)
+        setGist(await getGistById(id))
       } catch (err) {
-        console.error('Error fetching gist:', err)
-        setError('Could not load gist details.')
+        setError(getErrorMessage(err, 'Could not load this gist.'))
       } finally {
         setLoading(false)
       }
@@ -42,123 +60,99 @@ export default function GistDetail() {
 
   if (loading) {
     return (
-      <div className={styles['gist-content']}>
-        <div style={{ padding: '100px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          <div className="spinner" style={{ marginBottom: '20px' }}></div>
-          Loading gist...
+      <div className={detail.page} aria-busy="true">
+        <Skeleton width={100} height={14} />
+        <div className={detail.header}>
+          <Skeleton width="45%" height={34} />
+          <Skeleton width={280} height={20} />
         </div>
+        <Skeleton height={240} radius="var(--radius-lg)" />
       </div>
     )
   }
 
   if (error || !gist) {
     return (
-      <div className={styles['gist-content']}>
-        <div style={{ padding: '100px', textAlign: 'center' }}>
-          <h2 style={{ color: 'white', marginBottom: '16px' }}>{error || 'Gist not found'}</h2>
-          <Link to="/gists" className="btn-ghost" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-            <ChevronLeft size={16} /> Back to Gists
-          </Link>
-        </div>
+      <div className={detail.page}>
+        <EmptyState
+          title={error || 'Gist not found'}
+          description="It may have been deleted, or it’s a secret gist that belongs to someone else."
+          action={<LinkButton to="/gists" variant="secondary" size="sm"><ChevronLeft size={14} /> All gists</LinkButton>}
+        />
       </div>
     )
   }
 
-  const handleCopyRaw = (content: string) => {
-    navigator.clipboard.writeText(content)
-    // Add toast here later
-  }
+  const files = gist.files || []
 
   return (
-    <motion.div 
-      className={styles['gist-content']}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-    >
-      <div style={{ marginBottom: '24px' }}>
-        <Link to="/gists" className={issueStyles['meta-text']} style={{ display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}>
-          <ChevronLeft size={16} /> All gists
-        </Link>
-      </div>
+    <motion.div className={detail.page} initial="hidden" animate="visible" variants={stagger(0.05)}>
+      <motion.div variants={fadeUp}>
+        <Link to="/gists" className={detail.back}><ChevronLeft size={16} /> All gists</Link>
+      </motion.div>
 
-      <header className={styles['gist-header']}>
-        <div className={styles['gist-title-row']}>
-          <div className={styles['title-group']}>
-            <div className={styles['gist-icon']}>
-              <Code2 size={24} />
-            </div>
-            <div>
-              <h1 className={styles['gist-title']}>{gist.title}</h1>
-              <div className={styles['stat-item']} style={{ marginTop: '4px' }}>
-                <Link to={`/profile/${gist.user_id}`} className={issueStyles['author-link']}>
-                   {gist.user?.name || 'Developer'}
-                </Link> / <span className={styles['gist-id']}>{gist.id.slice(0, 8)}</span>
-              </div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '12px' }}>
-             <button className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Download size={16} /> Download</button>
-             <button className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Copy size={16} /> Copy URL</button>
+      <motion.header variants={fadeUp} className={detail.header}>
+        <div className={detail.titleRow}>
+          <h1 className={detail.title}>{gist.title || files[0]?.filename || 'Untitled gist'}</h1>
+          <div className={detail.titleActions}>
+            <IconButton label="Copy link" icon={<Link2 size={16} />} variant="secondary" size="sm" onClick={() => copy(window.location.href, 'Link')} />
           </div>
         </div>
-
-        <div className={styles['sidebar-stats']}>
-          <div className={styles['stat-item']}>
-             {gist.is_public ? <Globe size={14} /> : <Lock size={14} />}
-             {gist.is_public ? 'Public' : 'Secret'}
-          </div>
-          <div className={styles['stat-item']}>
-             <Calendar size={14} />
-             Created {new Date(gist.created_at).toLocaleDateString()}
-          </div>
-          <div className={styles['stat-item']}>
-             <FileCode size={14} />
-             {gist.files?.length || 0} files
-          </div>
+        <div className={detail.meta}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Avatar name={gist.user?.name} src={gist.user?.avatar_url} size={20} />
+            <Link to={`/profile/${gist.user_id}`}>{gist.user?.name || 'Deleted user'}</Link>
+          </span>
+          {gist.is_public
+            ? <Badge tone="steel" icon={<Globe size={11} />}>public</Badge>
+            : <Badge tone="neutral" icon={<Lock size={11} />}>secret</Badge>}
+          <span title={new Date(gist.created_at).toLocaleString()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Calendar size={14} /> {timeAgo(gist.created_at, now)}
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <FileCode size={14} /> {files.length} file{files.length === 1 ? '' : 's'}
+          </span>
         </div>
-        
-        {gist.description && (
-          <p style={{ marginTop: '20px', color: 'var(--text-dim)', fontSize: '1rem', lineHeight: '1.6' }}>
-            {gist.description}
-          </p>
-        )}
-      </header>
+        {gist.description && <p className={styles.description}>{gist.description}</p>}
+      </motion.header>
 
-      <div className={styles['gist-files-list']}>
-        {gist.files?.map((file) => (
-          <div key={file.id} className={styles['file-block']}>
-            <div className={styles['file-header']}>
-              <div className={styles['file-name']}>
-                <FileCode size={16} style={{ color: 'var(--text-muted)' }} />
-                {file.filename}
+      <div className={styles.files}>
+        {files.map((file) => {
+          const lines = Math.min(MAX_LINES, Math.max(MIN_LINES, file.content.split('\n').length))
+          return (
+            <motion.section key={file.id} variants={fadeUp} className={styles.file} aria-label={file.filename}>
+              <header className={styles.fileHead}>
+                <span className={styles.dot} style={{ background: fileColor(file.filename) }} />
+                <span className={styles.fileName}>{file.filename}</span>
+                <span className={styles.lang}>{file.language || languageLabel(file.filename)}</span>
+                <IconButton size="sm" label={`Copy ${file.filename}`} icon={<Copy size={14} />} onClick={() => copy(file.content, file.filename)} />
+                <IconButton size="sm" label={`Download ${file.filename}`} icon={<Download size={14} />} onClick={() => download(file)} />
+              </header>
+              <div style={{ height: lines * LINE_HEIGHT + 24 }}>
+                <Editor
+                  height="100%"
+                  language={file.language || monacoLanguage(file.filename)}
+                  theme={resolved === 'light' ? 'light' : 'vs-dark'}
+                  value={file.content}
+                  loading={<div className={styles.loading}><Spinner /> Loading…</div>}
+                  options={{
+                    readOnly: true,
+                    domReadOnly: true,
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    lineHeight: LINE_HEIGHT,
+                    fontFamily: 'JetBrains Mono, monospace',
+                    fontLigatures: true,
+                    scrollBeyondLastLine: false,
+                    lineNumbers: 'on',
+                    renderLineHighlight: 'none',
+                    padding: { top: 12, bottom: 12 },
+                  }}
+                />
               </div>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <span className={issueStyles['meta-text']} style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>{file.language}</span>
-                <button className="btn-ghost" style={{ padding: '4px' }} title="Copy Raw" onClick={() => handleCopyRaw(file.content)}><Copy size={14} /></button>
-                <button className="btn-ghost" style={{ padding: '4px' }} title="View Raw"><ExternalLink size={14} /></button>
-              </div>
-            </div>
-            <div className={styles['editor-container']}>
-              <Editor
-                height="100%"
-                language={file.language || undefined}
-                theme="vs-dark"
-                value={file.content}
-                options={{
-                  readOnly: true,
-                  minimap: { enabled: false },
-                  fontSize: 14,
-                  fontFamily: 'JetBrains Mono',
-                  scrollBeyondLastLine: false,
-                  lineNumbers: 'on',
-                  renderLineHighlight: 'all',
-                  padding: { top: 16 }
-                }}
-              />
-            </div>
-          </div>
-        ))}
+            </motion.section>
+          )
+        })}
       </div>
     </motion.div>
   )

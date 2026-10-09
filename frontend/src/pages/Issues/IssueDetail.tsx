@@ -1,60 +1,29 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import {
-  CircleDot,
-  CheckCircle2,
-  Clock,
-  User,
-  ChevronLeft,
-  Share2,
-  Calendar
-} from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
+import { CircleDot, CheckCircle2, ChevronLeft, Link2, Calendar, Clock, FolderGit2 } from 'lucide-react'
+import { Markdown } from '../../components/Markdown/Markdown'
 import { getIssueById, updateIssue, getErrorMessage, type Issue } from '../../lib/api'
 import CommentSection from '../../components/Social/CommentSection'
-import styles from './IssueDetail.module.css'
+import { Avatar, Button, EmptyState, IconButton, LinkButton, Skeleton, SkeletonText, toast } from '../../components/ui'
+import { fadeUp, stagger } from '../../lib/motion'
+import { timeAgo } from '../../lib/time'
+import styles from '../shared/Detail.module.css'
 
 export default function IssueDetail() {
   const { repoId, issueId } = useParams<{ repoId: string; issueId: string }>()
   const [issue, setIssue] = useState<Issue | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [statusError, setStatusError] = useState<string | null>(null)
   const [updating, setUpdating] = useState(false)
-  const [copied, setCopied] = useState(false)
-
-  const handleToggleStatus = async () => {
-    if (!issue || updating) return
-    setUpdating(true)
-    setStatusError(null)
-    try {
-      const updated = await updateIssue(issue.id, { status: issue.status === 'open' ? 'closed' : 'open' })
-      setIssue({ ...issue, ...updated })
-    } catch (err) {
-      setStatusError(getErrorMessage(err, 'Failed to update the issue.'))
-    } finally {
-      setUpdating(false)
-    }
-  }
-
-  const handleShare = async () => {
-    try {
-      await navigator.clipboard.writeText(window.location.href)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Clipboard unavailable (insecure context) — nothing to do
-    }
-  }
+  const [now] = useState(() => Date.now())
 
   useEffect(() => {
     async function fetchIssue() {
       if (!issueId) return
       setLoading(true)
       try {
-        const data = await getIssueById(issueId)
-        setIssue(data)
+        setIssue(await getIssueById(issueId))
       } catch (err) {
         setError(getErrorMessage(err, 'Could not load issue details.'))
       } finally {
@@ -64,136 +33,134 @@ export default function IssueDetail() {
     fetchIssue()
   }, [issueId])
 
+  const handleToggleStatus = async () => {
+    if (!issue || updating) return
+    setUpdating(true)
+    const next = issue.status === 'open' ? 'closed' : 'open'
+    try {
+      const updated = await updateIssue(issue.id, { status: next })
+      setIssue({ ...issue, ...updated })
+      toast.success(next === 'closed' ? 'Issue closed' : 'Issue reopened')
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Failed to update the issue.'))
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      toast.success('Link copied')
+    } catch {
+      toast.error('Could not copy — your browser blocked clipboard access.')
+    }
+  }
+
   if (loading) {
     return (
-      <div className={styles['issue-container']}>
-        <div style={{ padding: '100px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          <div className="spinner" style={{ marginBottom: '20px' }}></div>
-          Checking issue status...
+      <div className={styles.page} aria-busy="true">
+        <Skeleton width={120} height={14} />
+        <div className={styles.header}>
+          <Skeleton width="60%" height={34} />
+          <Skeleton width={260} height={20} />
         </div>
+        <SkeletonText lines={4} />
       </div>
     )
   }
 
   if (error || !issue) {
     return (
-      <div className={styles['issue-container']}>
-        <div style={{ padding: '100px', textAlign: 'center' }}>
-          <h2 style={{ color: 'white', marginBottom: '16px' }}>{error || 'Issue not found'}</h2>
-          <Link to={`/repo/${repoId}`} className="btn-ghost" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-            <ChevronLeft size={16} /> Back to Repository
-          </Link>
-        </div>
+      <div className={styles.page}>
+        <EmptyState
+          title={error || 'Issue not found'}
+          description="It may have been deleted, or you may not have access to this repository."
+          action={<LinkButton to={`/repo/${repoId}`} variant="secondary" size="sm"><ChevronLeft size={14} /> Back to repository</LinkButton>}
+        />
       </div>
     )
   }
 
+  const open = issue.status === 'open'
+  const canEdit = !!issue.permissions?.canEdit
+
   return (
-    <motion.div
-      className={styles['issue-container']}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-    >
-      {/* Breadcrumbs / Back Link */}
-      <div style={{ marginBottom: '24px' }}>
-        <Link to={`/repo/${repoId}`} className={styles['meta-text']} style={{ display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}>
-          <ChevronLeft size={16} /> Back to issues
-        </Link>
-      </div>
+    <motion.div className={styles.page} initial="hidden" animate="visible" variants={stagger(0.05)}>
+      <motion.div variants={fadeUp}>
+        <Link to={`/repo/${repoId}`} className={styles.back}><ChevronLeft size={16} /> {issue.repo?.name || 'Repository'} · issues</Link>
+      </motion.div>
 
-      {/* Header */}
-      <header className={styles['issue-header']}>
-        <div className={styles['issue-top-row']}>
-          <h1 className={styles['issue-title']}>
-            {issue.title} <span className={styles['issue-number']}>#{issue.id.slice(0, 8)}</span>
+      <motion.header variants={fadeUp} className={styles.header}>
+        <div className={styles.titleRow}>
+          <h1 className={styles.title}>
+            {issue.title}
+            <span className={styles.number}>#{issue.id.slice(0, 8)}</span>
           </h1>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            {issue.permissions?.canEdit && (
-              <button className="btn-ghost" onClick={handleToggleStatus} disabled={updating}>
-                {issue.status === 'open' ? 'Close issue' : 'Reopen issue'}
-              </button>
+          <div className={styles.titleActions}>
+            <IconButton label="Copy link" icon={<Link2 size={16} />} variant="secondary" size="sm" onClick={handleShare} />
+            {canEdit && (
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={updating}
+                onClick={handleToggleStatus}
+                iconLeft={open ? <CheckCircle2 size={14} /> : <CircleDot size={14} />}
+              >
+                {open ? 'Close issue' : 'Reopen issue'}
+              </Button>
             )}
-            <button className="btn-ghost" style={{ padding: '8px' }} onClick={handleShare} title="Copy link">
-              {copied ? 'Copied!' : <Share2 size={18} />}
-            </button>
           </div>
         </div>
-
-        <div className={styles['issue-meta']}>
-          <div className={`${styles['status-badge']} ${issue.status === 'open' ? styles['status-badge--open'] : styles['status-badge--closed']}`}>
-            {issue.status === 'open' ? <CircleDot size={16} /> : <CheckCircle2 size={16} />}
-            {issue.status}
-          </div>
-          <div className={styles['meta-text']}>
-            <Link to={`/profile/${issue.author_id}`} className={styles['author-link']}>{issue.author?.name || 'Deleted user'}</Link> opened this issue {new Date(issue.created_at).toLocaleDateString()}
-          </div>
-          {statusError && <div className={styles['meta-text']} style={{ color: '#ef4444' }}>{statusError}</div>}
+        <div className={styles.meta}>
+          <span className={`${styles.state} ${styles[`state_${issue.status}`]}`}>
+            {open ? <CircleDot size={15} /> : <CheckCircle2 size={15} />} {issue.status}
+          </span>
+          <span>
+            {issue.author_id ? <Link to={`/profile/${issue.author_id}`}>{issue.author?.name || 'Deleted user'}</Link> : 'Deleted user'}
+            {' '}opened this issue {timeAgo(issue.created_at, now)}
+          </span>
         </div>
-      </header>
+      </motion.header>
 
-      {/* Content Grid */}
-      <div className={styles['issue-content-grid']}>
-        <div className={styles['issue-main']}>
-          <div className={styles['description-box']}>
-            <div className={styles['description-header']}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
-                <User size={14} /> {issue.author?.name || 'Deleted user'} commented
+      <motion.div variants={fadeUp} className={styles.grid}>
+        <div className={styles.main}>
+          <div className={styles.opener}>
+            <Avatar name={issue.author?.name} src={issue.author?.avatar_url} size={32} />
+            <article className={styles.description}>
+              <header className={styles.descriptionHead}>
+                <strong>{issue.author?.name || 'Deleted user'}</strong> opened {timeAgo(issue.created_at, now)}
+              </header>
+              <div className={`${styles.descriptionBody} markdown-body`}>
+                <Markdown>{issue.description || '_No description provided._'}</Markdown>
               </div>
-              <div className={styles['meta-text']}>
-                {new Date(issue.created_at).toLocaleTimeString() }
-              </div>
-            </div>
-            <div className={styles['description-body']}>
-              <ReactMarkdown>{issue.description || '_No description provided._'}</ReactMarkdown>
-            </div>
+            </article>
           </div>
 
-          {/* Comments Section */}
-          <div style={{ marginTop: '48px' }}>
-            <h3 className={styles['section-title']}>Discussion</h3>
+          <section aria-labelledby="discussion-title">
+            <h2 id="discussion-title" className={styles.sectionTitle}>Discussion</h2>
             <CommentSection type="issue" id={issueId!} />
-          </div>
+          </section>
         </div>
 
-        {/* Sidebar */}
-        <aside className={styles['issue-sidebar']}>
-          <div className={styles['sidebar-section']}>
-            <h4 className={styles['sidebar-title']}>Assignees</h4>
-            <div className={styles['sidebar-content']} style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
-              No one assigned
+        <aside className={styles.sidebar} aria-label="Issue details">
+          <div className={styles.side}>
+            <h2 className={styles.sideTitle}>Author</h2>
+            <div className={styles.sideRow}>
+              <Avatar name={issue.author?.name} src={issue.author?.avatar_url} size={22} />
+              {issue.author_id ? <Link to={`/profile/${issue.author_id}`}>{issue.author?.name || 'Deleted user'}</Link> : 'Deleted user'}
             </div>
           </div>
-
-          <div className={styles['sidebar-section']}>
-            <h4 className={styles['sidebar-title']}>Labels</h4>
-            <div className={styles['sidebar-content']} style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-              <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa', fontSize: '0.75rem', fontWeight: 600 }}>bug</span>
-            </div>
-          </div>
-
-          <div className={styles['sidebar-section']}>
-            <h4 className={styles['sidebar-title']}>Details</h4>
-            <div className={styles['sidebar-content']} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
-                <Calendar size={14} style={{ color: 'var(--text-muted)' }} />
-                <span style={{ color: 'var(--text-muted)' }}>Created {new Date(issue.created_at).toLocaleDateString()}</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
-                <Clock size={14} style={{ color: 'var(--text-muted)' }} />
-                <span style={{ color: 'var(--text-muted)' }}>Last updated {new Date(issue.updated_at).toLocaleTimeString()}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className={styles['action-card']}>
-            <button className={styles['btn-status-toggle']}>
-               {issue.status === 'open' ? <CheckCircle2 size={18} /> : <CircleDot size={18} />}
-               {issue.status === 'open' ? 'Close Issue' : 'Reopen Issue'}
-            </button>
+          <div className={styles.side}>
+            <h2 className={styles.sideTitle}>Details</h2>
+            {issue.repo && (
+              <div className={styles.sideRow}><FolderGit2 size={14} /> <Link to={`/repo/${issue.repo_id}`}>{issue.repo.name}</Link></div>
+            )}
+            <div className={styles.sideRow} title={new Date(issue.created_at).toLocaleString()}><Calendar size={14} /> Opened {timeAgo(issue.created_at, now)}</div>
+            <div className={styles.sideRow} title={new Date(issue.updated_at).toLocaleString()}><Clock size={14} /> Updated {timeAgo(issue.updated_at, now)}</div>
           </div>
         </aside>
-      </div>
+      </motion.div>
     </motion.div>
   )
 }

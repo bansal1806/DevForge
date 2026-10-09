@@ -1,0 +1,31 @@
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  gap: var(--space-4);
+  animation: fadeIn var(--dur-base) var(--ease-out);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+
+.screen {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  animation: fadeIn var(--dur-base) var(--ease-out);
+}
+
+.actions { display: flex; gap: var(--space-2); }
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+}

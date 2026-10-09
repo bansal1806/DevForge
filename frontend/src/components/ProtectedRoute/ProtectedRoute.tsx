@@ -1,22 +1,15 @@
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
-import { Loader2 } from 'lucide-react'
+import { ScreenFallback } from '../RouteStates/RouteStates'
 
 export default function ProtectedRoute() {
   const { user, loading } = useAuth()
+  const location = useLocation()
 
-  if (loading) {
-    return (
-      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)' }}>
-        <Loader2 size={32} className="animate-spin" />
-      </div>
-    )
-  }
+  if (loading) return <ScreenFallback label="Checking your session…" />
 
-  if (!user) {
-    return <Navigate to="/auth" replace />
-  }
+  // Remember where they were headed so sign-in can bring them back
+  if (!user) return <Navigate to="/auth" replace state={{ from: location }} />
 
-  // Render the child routes if authenticated
   return <Outlet />
 }

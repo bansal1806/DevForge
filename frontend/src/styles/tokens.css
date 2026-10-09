@@ -1,0 +1,234 @@
+/*
+ * DevForge design tokens — "the forge".
+ *
+ * Warm charcoal (the anvil), one molten ember accent used sparingly, cool
+ * steel for structure. Two themes: Night Forge (dark) and Daylight (light),
+ * selected with [data-theme] on <html> (see contexts/ThemeContext.tsx).
+ * Any element can also carry data-theme to render a theme locally.
+ *
+ * Contrast pairs are verified against WCAG AA (see scripts/check-contrast.mjs).
+ */
+
+:root {
+  /* ---- Typography ---- */
+  --font-display: 'Bricolage Grotesque', 'Geist', system-ui, sans-serif;
+  --font-body: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-code: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+  --text-4xl: 3rem;
+  --text-5xl: clamp(2.75rem, 6vw, 4.5rem);
+
+  --leading-tight: 1.15;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55;
+
+  /* ---- Space (4px grid) ---- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* ---- Shape ---- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  /* ---- Motion ---- */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 150ms;
+  --dur-base: 220ms;
+  --dur-slow: 420ms;
+
+  /* ---- Layout ---- */
+  --sidebar-width: 280px;
+  --header-height: 64px;
+  --focus-ring-width: 2px;
+
+  /* ---- Molten gradient (shared by both themes) ---- */
+  --molten: linear-gradient(135deg, #ff4d1f 0%, #ff7a2f 45%, #ffb347 100%);
+  --molten-hover: linear-gradient(135deg, #ff5c2e 0%, #ff8a40 45%, #ffc15e 100%);
+  --on-molten: #1d0d04;
+  /* Gradient for display text; Daylight swaps in a deeper ramp for contrast */
+  --molten-text: var(--molten);
+}
+
+/* ===================================================================== */
+/* Night Forge (dark) — default                                          */
+/* ===================================================================== */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-bg: #0f0c0a;
+  --color-surface: #171310;
+  --color-surface-2: #1f1a16;
+  --color-surface-3: #29231e;
+  --color-overlay: rgba(8, 6, 5, 0.72);
+
+  --color-border: rgba(255, 236, 220, 0.09);
+  --color-border-strong: rgba(255, 236, 220, 0.18);
+
+  --color-text: #f6efe8;
+  --color-text-secondary: #c2b6ab;
+  --color-text-muted: #968a80;
+  --color-text-subtle: #6b6159;
+
+  --color-ember: #ff6b2c;
+  --color-ember-strong: #ff8a4c;
+  --color-ember-text: #ff9a5e;
+  --color-ember-soft: rgba(255, 107, 44, 0.14);
+  --color-ember-glow: rgba(255, 107, 44, 0.38);
+
+  --color-steel: #9db0c4;
+  --color-steel-soft: rgba(157, 176, 196, 0.14);
+
+  --color-success: #5fd39b;
+  --color-success-soft: rgba(95, 211, 155, 0.14);
+  --color-danger: #ff6b6b;
+  --color-danger-soft: rgba(255, 107, 107, 0.14);
+  --color-warning: #ffc15e;
+  --color-warning-soft: rgba(255, 193, 94, 0.14);
+  --color-info: #82aaff;
+  --color-info-soft: rgba(130, 170, 255, 0.14);
+  --color-violet: #b99cff;
+  --color-teal: #4fd1c5;
+
+  --color-hover: rgba(255, 236, 220, 0.05);
+  --color-active: rgba(255, 236, 220, 0.09);
+  --color-focus: #ffb347;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.45);
+  --shadow-3: 0 18px 50px rgba(0, 0, 0, 0.55);
+  --shadow-ember: 0 0 0 1px rgba(255, 122, 47, 0.35), 0 8px 28px rgba(255, 90, 31, 0.28);
+
+  /* Chart series/status pair — validated with the dataviz palette checks
+     (lightness band, chroma, CVD + normal-vision separation, contrast) */
+  --chart-series: #5f8af0;
+  --chart-error: #ef5350;
+  --chart-grid: rgba(255, 236, 220, 0.07);
+
+  --skeleton-base: #1f1a16;
+  --skeleton-shine: #2c2520;
+}
+
+/* ===================================================================== */
+/* Daylight (light) — warm paper                                         */
+/* ===================================================================== */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --color-bg: #faf6f1;
+  --color-surface: #ffffff;
+  --color-surface-2: #f3ece4;
+  --color-surface-3: #e9dfd4;
+  --color-overlay: rgba(40, 28, 20, 0.38);
+
+  --color-border: rgba(64, 42, 26, 0.12);
+  --color-border-strong: rgba(64, 42, 26, 0.22);
+
+  --color-text: #1f1915;
+  --color-text-secondary: #54483f;
+  --color-text-muted: #6f6258;
+  --color-text-subtle: #a3968b;
+
+  --color-ember: #e8541b;
+  --color-ember-strong: #c94511;
+  --color-ember-text: #a8380b;
+  --color-ember-soft: rgba(232, 84, 27, 0.1);
+  --color-ember-glow: rgba(232, 84, 27, 0.25);
+
+  --color-steel: #4f6478;
+  --color-steel-soft: rgba(79, 100, 120, 0.1);
+
+  --color-success: #156d43;
+  --color-success-soft: rgba(23, 121, 74, 0.1);
+  --color-danger: #b42828;
+  --color-danger-soft: rgba(196, 43, 43, 0.09);
+  --color-warning: #8c5200;
+  --color-warning-soft: rgba(196, 122, 0, 0.12);
+  --color-info: #275ab9;
+  --color-info-soft: rgba(42, 98, 201, 0.1);
+  --color-violet: #6d45d6;
+  --color-teal: #0f7f76;
+
+  --color-hover: rgba(64, 42, 26, 0.05);
+  --color-active: rgba(64, 42, 26, 0.09);
+  --color-focus: #c94511;
+
+  --shadow-1: 0 1px 2px rgba(64, 42, 26, 0.08);
+  --shadow-2: 0 6px 20px rgba(64, 42, 26, 0.1);
+  --shadow-3: 0 18px 50px rgba(64, 42, 26, 0.16);
+  --shadow-ember: 0 0 0 1px rgba(232, 84, 27, 0.3), 0 8px 24px rgba(232, 84, 27, 0.18);
+
+  --chart-series: #2a62c9;
+  --chart-error: #c42b2b;
+  --chart-grid: rgba(64, 42, 26, 0.08);
+
+  --skeleton-base: #efe7de;
+  --skeleton-shine: #f8f3ee;
+
+  --molten-text: linear-gradient(135deg, #c2410c 0%, #d9480f 50%, #b45309 100%);
+}
+
+/* ===================================================================== */
+/* Legacy aliases — existing pages use these names. Mapped onto the new   */
+/* tokens so every screen picks up the forge palette (and several names   */
+/* that were never defined now resolve). Removed as pages are migrated.   */
+/* ===================================================================== */
+:root,
+[data-theme] {
+  --bg-deep: var(--color-bg);
+  --bg-main: var(--color-bg);
+  --bg-surface: var(--color-surface);
+  --bg-card: var(--color-surface-2);
+  --bg-card-hover: var(--color-surface-3);
+  --bg-glass: color-mix(in srgb, var(--color-surface) 82%, transparent);
+  --bg-glass-hover: color-mix(in srgb, var(--color-surface-2) 92%, transparent);
+
+  --border-glass: var(--color-border);
+  --border-glass-hover: var(--color-border-strong);
+  --border-light: var(--color-border);
+  --border-color: var(--color-border);
+
+  --accent-base: var(--color-ember);
+  --accent-primary: var(--color-ember);
+  --accent-primary-hover: var(--color-ember-strong);
+  --accent-glow: var(--color-ember-glow);
+  --accent-neon: var(--color-ember-text);
+  --accent-purple: var(--color-violet);
+  --accent-emerald: var(--color-success);
+  --accent-cyan: var(--color-teal);
+  --accent-amber: var(--color-warning);
+
+  --text-primary: var(--color-text);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
+  --text-dim: var(--color-text-subtle);
+
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-code);
+
+  --spacing-xs: var(--space-1);
+  --spacing-sm: var(--space-2);
+  --spacing-md: var(--space-4);
+  --spacing-lg: var(--space-6);
+  --spacing-xl: var(--space-8);
+}

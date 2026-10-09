@@ -1,0 +1,172 @@
+.panel {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.kpi {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.kpiLabel {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.kpiValue {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+.kpiSub {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.meter {
+  height: 6px;
+  margin-top: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-3);
+  overflow: hidden;
+}
+
+.meterFill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-success);
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.chartTitle {
+  font-size: var(--text-base);
+  font-weight: 700;
+  font-family: var(--font-body);
+  letter-spacing: 0;
+}
+
+.chartSub {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatchLine {
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--chart-series);
+}
+
+.swatchDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--chart-error);
+  box-shadow: 0 0 0 2px var(--color-surface);
+}
+
+.chartBox {
+  width: 100%;
+  height: 240px;
+  margin-top: var(--space-3);
+}
+
+.tooltip {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  box-shadow: var(--shadow-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.tooltip strong {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.statusOk { color: var(--color-success); display: inline-flex; align-items: center; gap: 4px; }
+.statusErr { color: var(--color-danger); display: inline-flex; align-items: center; gap: 4px; }
+
+.tableToggle {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.tableToggle summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-ember-text);
+  width: fit-content;
+}
+
+.table {
+  width: 100%;
+  margin-top: var(--space-3);
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.table th,
+.table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table th {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.num { text-align: right !important; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1000px) {
+  .charts { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 700px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
